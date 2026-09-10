@@ -1,0 +1,71 @@
+route_id,route_name,origin,destination,distance_nautical_miles,transit_days,transshipments,transshipment_ports,primary_chokepoints,reliability_rating,ocean_corridor
+R-CHE-ROT-01,Express Suez Direct,Chennai,Rotterdam,6500,21,0,Direct (None),Suez Canal & Bab-el-Mandeb,95,Indian Ocean - Red Sea - Mediterranean - Atlantic
+R-CHE-ROT-02,Colombo Relay Feeder,Chennai,Rotterdam,6750,24,1,Port of Colombo,Suez Canal & Bab-el-Mandeb,88,Bay of Bengal - Laccadive Sea - Red Sea - Atlantic
+R-CHE-ROT-03,Cape Bypass Ocean Route,Chennai,Rotterdam,10800,34,0,Direct (None),Cape of Good Hope,92,Indian Ocean - South Atlantic - North Atlantic
+R-SHA-LAX-01,Trans-Pacific Express Direct,Shanghai,Los Angeles,5700,14,0,Direct (None),Pacific Ocean Corridor,96,Trans-Pacific Direct Ocean Corridor
+R-SHA-LAX-02,Busan Hub Feeder Route,Shanghai,Los Angeles,6100,17,1,Busan Port,North Pacific Lane,90,East China Sea - Sea of Japan - Pacific Ocean
+R-SIN-HAM-01,Suez Direct Liner,Singapore,Hamburg,8400,26,0,Direct (None),Malacca Strait & Suez Canal,94,Strait of Malacca - Indian Ocean - Suez - North Sea
+R-SIN-HAM-02,Jebel Ali Transshipment,Singapore,Hamburg,8750,30,1,Jebel Ali Port,Malacca Strait & Suez Canal,87,Malacca - Persian Gulf - Suez - Atlantic
+R-BOM-FEL-01,Suez Direct Express,Mumbai,Felixstowe,6300,20,0,Direct (None),Suez Canal,95,Arabian Sea - Red Sea - Mediterranean - English Channel
+R-BOM-FEL-02,Salalah Relay Service,Mumbai,Felixstowe,6550,23,1,Port of Salalah,Suez Canal,89,Arabian Sea - Gulf of Aden - Suez - Atlantic
+R-NGB-NYC-01,Panama Canal All-Water,Ningbo,New York,10500,32,0,Direct (None),Panama Canal,93,East China Sea - Pacific - Panama Canal - Atlantic
+R-NGB-NYC-02,Suez Westbound Corridor,Ningbo,New York,11800,36,1,Port of Singapore,Suez Canal & Malacca,88,East China Sea - Malacca - Suez - Atlantic
+R-CHE-SIN-01,Bay of Bengal Direct,Chennai,Singapore,1500,5,0,Direct (None),Strait of Malacca,97,Bay of Bengal - Strait of Malacca
+R-CHE-LAX-01,Pacific Direct Ocean,Chennai,Los Angeles,9200,28,0,Direct (None),Pacific Ocean Trade Lane,91,Indian Ocean - Strait of Malacca - Pacific Ocean
+R-TYO-LAX-01,North Pacific Express,Tokyo,Los Angeles,4800,11,0,Direct (None),North Pacific Route,98,North Pacific Ocean Corridor
+R-TYO-LAX-02,Yokohama Feeder Service,Tokyo,Los Angeles,5100,13,1,Port of Yokohama,North Pacific Lane,92,Pacific Coastwise Relay Corridor
+R-DXB-ROT-01,Gulf Suez Express,Dubai,Rotterdam,5400,16,0,Direct (None),Suez Canal & Strait of Hormuz,96,Persian Gulf - Red Sea - Suez - Mediterranean
+R-DXB-ROT-02,Salalah Transshipment Hub,Dubai,Rotterdam,5650,19,1,Port of Salalah,Suez Canal,90,Arabian Sea - Red Sea - Suez - Atlantic
+R-CHE-HAM-01,Suez Direct Hamburg,Chennai,Hamburg,6700,22,0,Direct (None),Suez Canal & Elbe River,94,Indian Ocean - Red Sea - Suez - North Sea
+R-BOM-ROT-01,Arabian Suez Corridor,Mumbai,Rotterdam,6200,19,0,Direct (None),Suez Canal,95,Arabian Sea - Red Sea - Mediterranean - Atlantic
+R-SHA-NYC-01,Panama Canal Express,Shanghai,New York,10600,31,0,Direct (None),Panama Canal,94,Trans-Pacific - Panama Canal - US East Coast
+R-SIN-LAX-01,Trans-Pacific Liner,Singapore,Los Angeles,7800,21,0,Direct (None),Strait of Malacca & Pacific,93,South China Sea - Pacific Ocean Corridor
+R-BUS-LAX-01,East Sea Direct Express,Busan,Los Angeles,5200,12,0,Direct (None),North Pacific Lane,97,Sea of Japan - Trans-Pacific Direct
+R-NGB-ROT-01,Asia-Europe Suez Express,Ningbo,Rotterdam,10200,30,0,Direct (None),Suez Canal & Malacca,94,East China Sea - Malacca - Suez - Atlantic
+R-DXB-NYC-01,Trans-Atlantic Gulf Express,Dubai,New York,6800,22,0,Direct (None),Suez Canal & Gibraltar,92,Persian Gulf - Suez - Mediterranean - Atlantic
+R-TYO-ROT-01,Suez East Asian Liner,Tokyo,Rotterdam,11100,33,0,Direct (None),Suez Canal & Malacca,93,Pacific - South China Sea - Suez - North Sea
+R-CHE-SYD-01,Indo-Australian Express,Chennai,Sydney,5300,16,0,Direct (None),Sundak / Lombok Strait,95,Indian Ocean - Timor Sea - Pacific Ocean
+R-SHA-SYD-01,East Asia Oceania Line,Shanghai,Sydney,4600,14,0,Direct (None),Coral Sea Corridor,96,East China Sea - Philippine Sea - Pacific
+R-DXB-SIN-01,Indian Ocean Gulf Connector,Dubai,Singapore,3400,10,0,Direct (None),Strait of Malacca,97,Persian Gulf - Arabian Sea - Malacca
+R-BOM-NYC-01,Arabian Trans-Atlantic Express,Mumbai,New York,7900,25,0,Direct (None),Suez Canal & Strait of Gibraltar,93,Arabian Sea - Red Sea - Suez - Atlantic
+R-SHA-ROT-01,East China Suez Express,Shanghai,Rotterdam,10500,28,0,Direct (None),Suez Canal & Malacca,95,East China Sea - Malacca - Suez - Mediterranean - Atlantic
+R-SHA-ROT-02,Singapore Relay Liner,Shanghai,Rotterdam,10850,32,1,Port of Singapore,Suez Canal & Malacca,90,East China Sea - Malacca - Suez - Atlantic
+R-SHA-HAM-01,Shanghai North Sea Express,Shanghai,Hamburg,10700,29,0,Direct (None),Suez Canal & Malacca,94,East China Sea - Malacca - Suez - North Sea
+R-SIN-NYC-01,Strait of Malacca Trans-Atlantic,Singapore,New York,10100,29,0,Direct (None),Suez Canal,93,Malacca - Suez - Mediterranean - Atlantic
+R-SIN-LAX-02,Hong Kong Transshipment Line,Singapore,Los Angeles,8100,24,1,Port of Hong Kong,Pacific Ocean Lane,89,South China Sea - Pacific Corridor
+R-BOM-LAX-01,Indian Ocean Trans-Pacific,Mumbai,Los Angeles,9400,27,0,Direct (None),Strait of Malacca & Pacific,92,Arabian Sea - Malacca - Pacific
+R-BOM-ROT-02,Salalah Connection,Mumbai,Rotterdam,6450,22,1,Port of Salalah,Suez Canal,91,Arabian Sea - Red Sea - Suez - Atlantic
+R-BUS-ROT-01,Busan Suez Express,Busan,Rotterdam,10900,31,0,Direct (None),Suez Canal & Malacca,93,Sea of Japan - Malacca - Suez - Atlantic
+R-BUS-NYC-01,Panama All-Water Express,Busan,New York,9900,29,0,Direct (None),Panama Canal,95,Sea of Japan - Pacific - Panama Canal - Atlantic
+R-NGB-LAX-01,East China Express Liner,Ningbo,Los Angeles,5600,14,0,Direct (None),North Pacific Ocean Lane,96,East China Sea - Trans-Pacific Direct
+R-NGB-HAM-01,Ningbo Suez Liner,Ningbo,Hamburg,10600,30,0,Direct (None),Suez Canal & Malacca,93,East China Sea - Malacca - Suez - North Sea
+R-DXB-LAX-01,Gulf Trans-Pacific Connector,Dubai,Los Angeles,11200,34,1,Port of Singapore,Strait of Hormuz & Malacca,89,Persian Gulf - Malacca - Pacific Ocean
+R-DXB-HAM-01,Gulf European Liner,Dubai,Hamburg,5800,18,0,Direct (None),Suez Canal & Strait of Hormuz,95,Persian Gulf - Red Sea - Suez - North Sea
+R-TYO-NYC-01,Japan Atlantic Express,Tokyo,New York,9700,27,0,Direct (None),Panama Canal,96,Pacific - Panama Canal - US East Coast
+R-TYO-HAM-01,Tokyo Suez Express,Tokyo,Hamburg,11300,34,0,Direct (None),Suez Canal & Malacca,92,Pacific - Malacca - Suez - North Sea
+R-CHE-NYC-01,Chennai Trans-Atlantic Express,Chennai,New York,8200,26,0,Direct (None),Suez Canal & Gibraltar,92,Bay of Bengal - Suez - Atlantic
+R-SIN-SYD-01,Singapore Oceania Direct,Singapore,Sydney,3900,11,0,Direct (None),Lombok Strait,97,Malacca - Timor Sea - Pacific Ocean
+R-BOM-SYD-01,Mumbai Australian Connector,Mumbai,Sydney,5800,18,0,Direct (None),Sunda Strait,93,Arabian Sea - Indian Ocean - Timor Sea
+R-DXB-SYD-01,Gulf Oceania Express,Dubai,Sydney,6400,20,0,Direct (None),Lombok Strait,94,Persian Gulf - Indian Ocean - Pacific
+R-BUS-HAM-01,Busan European Express,Busan,Hamburg,11050,32,0,Direct (None),Suez Canal & Malacca,94,Sea of Japan - Malacca - Suez - North Sea
+R-HKG-LAX-01,Hong Kong Trans-Pacific,Hong Kong,Los Angeles,6200,16,0,Direct (None),Pacific Ocean Lane,96,South China Sea - Pacific Ocean
+R-HKG-ROT-01,Hong Kong Suez Express,Hong Kong,Rotterdam,9800,28,0,Direct (None),Suez Canal & Malacca,94,South China Sea - Suez - Atlantic
+R-CMB-ROT-01,Colombo Ocean Gateway,Colombo,Rotterdam,6200,19,0,Direct (None),Suez Canal,95,Indian Ocean - Red Sea - Suez - Atlantic
+R-CMB-NYC-01,Colombo Trans-Atlantic,Colombo,New York,7900,24,0,Direct (None),Suez Canal & Gibraltar,92,Indian Ocean - Suez - Atlantic
+R-YOK-LAX-01,Yokohama Pacific Liner,Yokohama,Los Angeles,4700,11,0,Direct (None),North Pacific Lane,97,North Pacific Direct Corridor
+R-YOK-NYC-01,Yokohama Panama Express,Yokohama,New York,9600,26,0,Direct (None),Panama Canal,94,Pacific - Panama Canal - US East Coast
+R-SLH-ROT-01,Salalah Suez Direct,Salalah,Rotterdam,5200,15,0,Direct (None),Suez Canal,96,Arabian Sea - Red Sea - Suez - Mediterranean
+R-SLH-NYC-01,Salalah Atlantic Liner,Salalah,New York,6900,21,0,Direct (None),Suez Canal & Gibraltar,93,Arabian Sea - Suez - Atlantic
+R-PKG-LAX-01,Klang Trans-Pacific Express,Klang,Los Angeles,7900,22,0,Direct (None),Strait of Malacca & Pacific,94,Malacca - South China Sea - Pacific
+R-PKG-ROT-01,Klang Suez Connector,Klang,Rotterdam,8300,25,0,Direct (None),Suez Canal & Malacca,95,Malacca - Indian Ocean - Suez - Atlantic
+R-TAO-LAX-01,Qingdao Express Liner,Qingdao,Los Angeles,5500,13,0,Direct (None),North Pacific Ocean Lane,96,Yellow Sea - Pacific Ocean Corridor
+R-TAO-ROT-01,Qingdao Suez Express,Qingdao,Rotterdam,10300,29,0,Direct (None),Suez Canal & Malacca,93,Yellow Sea - Malacca - Suez - Atlantic
+R-SHA-ANR-01,Shanghai Antwerp Direct,Shanghai,Antwerp,10600,29,0,Direct (None),Suez Canal & Scheldt,95,East China Sea - Suez - North Sea
+R-SIN-ANR-01,Singapore Antwerp Express,Singapore,Antwerp,8500,26,0,Direct (None),Suez Canal & Malacca,94,Malacca - Suez - North Sea
+R-SHA-YVR-01,Shanghai Vancouver Express,Shanghai,Vancouver,5100,12,0,Direct (None),North Pacific Route,97,Trans-Pacific North Line
+R-TYO-YVR-01,Tokyo Pacific Northwest,Tokyo,Vancouver,4300,10,0,Direct (None),North Pacific Lane,98,North Pacific Route Direct
+R-DXB-GOA-01,Dubai Mediterranean Express,Dubai,Genoa,4600,13,0,Direct (None),Suez Canal & Strait of Hormuz,96,Persian Gulf - Suez - Mediterranean
+R-SIN-MEL-01,Singapore Melbourne Liner,Singapore,Melbourne,3800,11,0,Direct (None),Bass Strait,96,Malacca - Indian Ocean - Bass Strait
+R-CHE-MEL-01,Chennai Melbourne Connector,Chennai,Melbourne,5200,16,0,Direct (None),Indian Ocean Corridor,94,Indian Ocean - Southern Ocean
+R-SIN-SSZ-01,Singapore Santos Cape Route,Singapore,Santos,9200,28,0,Direct (None),Cape of Good Hope,91,Indian Ocean - South Atlantic
+R-SHA-BRV-01,Shanghai Bremerhaven Express,Shanghai,Bremerhaven,10750,30,0,Direct (None),Suez Canal & Weser,94,East China Sea - Suez - North Sea
