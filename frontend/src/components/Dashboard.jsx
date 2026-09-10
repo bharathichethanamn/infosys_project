@@ -14,10 +14,35 @@ function Dashboard({ user, onLogout }) {
     containers: 10
   })
 
-  // Restore latest analysis from localStorage or initialize to null
+  // Restore latest route analysis from localStorage or initialize to null
   const [apiResult, setApiResult] = useState(() => {
     try {
       const saved = localStorage.getItem('maritime_latest_analysis')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+
+  // Pricing Agent State
+  const [containerType, setContainerType] = useState('40ft')
+  const [pricingResult, setPricingResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem('maritime_latest_pricing')
+      return saved ? JSON.parse(saved) : null
+    } catch {
+      return null
+    }
+  })
+  const [pricingLoading, setPricingLoading] = useState(false)
+  const [pricingError, setPricingError] = useState('')
+
+  // Quotation Agent State
+  const [customerName, setCustomerName] = useState('Global Logistics Corp')
+  const [marginPercent, setMarginPercent] = useState(15.0)
+  const [quotationResult, setQuotationResult] = useState(() => {
+    try {
+      const saved = localStorage.getItem('maritime_latest_quotation')
       return saved ? JSON.parse(saved) : null
     } catch {
       return null
@@ -28,7 +53,7 @@ function Dashboard({ user, onLogout }) {
   const [error, setError] = useState('')
 
   // Report Export Loading & Toast States
-  const [reportLoading, setReportLoading] = useState({ pdf: false, csv: false })
+  const [reportLoading, setReportLoading] = useState({ pdf: false, csv: false, pricingPdf: false })
   const [reportToast, setReportToast] = useState('')
 
   // AI Agent Processing State
@@ -72,7 +97,7 @@ function Dashboard({ user, onLogout }) {
     }
   }, [])
 
-  // Persist latest analysis to localStorage whenever apiResult updates
+  // Persist latest route analysis to localStorage
   useEffect(() => {
     if (apiResult) {
       try {
@@ -83,7 +108,29 @@ function Dashboard({ user, onLogout }) {
     }
   }, [apiResult])
 
-  // Save shipmentHistory to localStorage whenever updated
+  // Persist pricingResult to localStorage
+  useEffect(() => {
+    if (pricingResult) {
+      try {
+        localStorage.setItem('maritime_latest_pricing', JSON.stringify(pricingResult))
+      } catch (e) {
+        console.error('Failed to save pricing result:', e)
+      }
+    }
+  }, [pricingResult])
+
+  // Persist quotationResult to localStorage
+  useEffect(() => {
+    if (quotationResult) {
+      try {
+        localStorage.setItem('maritime_latest_quotation', JSON.stringify(quotationResult))
+      } catch (e) {
+        console.error('Failed to save quotation result:', e)
+      }
+    }
+  }, [quotationResult])
+
+  // Save shipmentHistory to localStorage
   useEffect(() => {
     try {
       localStorage.setItem('maritime_shipment_history', JSON.stringify(shipmentHistory))
@@ -92,6 +139,7 @@ function Dashboard({ user, onLogout }) {
     }
   }, [shipmentHistory])
 
+  // 1. ROUTE AGENT ANALYSIS HANDLER
   const triggerRouteAnalysis = async (dataToSubmit, saveToHistory = true, animateSteps = true) => {
     setLoading(true)
     setError('')
@@ -102,9 +150,8 @@ function Dashboard({ user, onLogout }) {
     }
 
     try {
-      // Step 1: Request Received
       if (animateSteps) {
-        await new Promise(r => setTimeout(r, 450))
+        await new Promise(r => setTimeout(r, 400))
         setProcessingStep(2)
       }
 
@@ -115,12 +162,10 @@ function Dashboard({ user, onLogout }) {
       })
 
       if (animateSteps) {
-        // Step 3: Candidate Evaluation
         setProcessingStep(3)
-        await new Promise(r => setTimeout(r, 500))
-        // Step 4: Best Route Selection
+        await new Promise(r => setTimeout(r, 400))
         setProcessingStep(4)
-        await new Promise(r => setTimeout(r, 450))
+        await new Promise(r => setTimeout(r, 350))
       }
 
       if (!res.ok) {
@@ -129,6 +174,12 @@ function Dashboard({ user, onLogout }) {
 
       const data = await res.json()
       setApiResult(data)
+
+      // Reset pricing result on new route analysis to keep consistency
+      setPricingResult(null)
+      setQuotationResult(null)
+      localStorage.removeItem('maritime_latest_pricing')
+      localStorage.removeItem('maritime_latest_quotation')
 
       if (data && data.matched === false) {
         setError(data.message || 'No matching routes found for this corridor.')
@@ -160,8 +211,89 @@ function Dashboard({ user, onLogout }) {
     } finally {
       setLoading(false)
       if (animateSteps) {
-        setTimeout(() => setIsProcessing(false), 300)
+        setTimeout(() => setIsProcessing(false), 250)
       }
+    }
+  }
+
+  // 2. PRICING AGENT FREIGHT COST CALCULATION HANDLER
+  const calculateFreightPrice = async (cType = containerType) => {
+    if (!apiResult || !apiResult.best_route) {
+      setPricingError('No active route analysis found. Please analyze a route in Route Intelligence first.')
+      return
+    }
+
+    setPricingLoading(true)
+    setPricingError('')
+
+    const payload = {
+      route_id: apiResult.best_route.route_id,
+      origin: apiResult.query.origin,
+      destination: apiResult.query.destination,
+      cargo_type: apiResult.query.cargo_type,
+      containers: apiResult.query.containers,
+      container_type: cType
+    }
+
+    try {
+      const res = await fetch(`${API_URL}/api/pricing/calculate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || data.status === 'error') {
+        throw new Error(data.message || data.detail || 'Pricing data not available for the selected parameters.')
+      }
+
+      setPricingResult(data)
+      setReportToast('✅ Freight cost calculated successfully by Pricing Agent!')
+      setTimeout(() => setReportToast(''), 4000)
+    } catch (err) {
+      setPricingError(err.message || 'Failed to calculate pricing.')
+    } finally {
+      setPricingLoading(false)
+    }
+  }
+
+  // 3. QUOTATION AGENT GENERATE QUOTE HANDLER
+  const generateCustomerQuotation = async () => {
+    if (!apiResult || !apiResult.best_route) {
+      alert('Please analyze a route and calculate freight pricing first.')
+      return
+    }
+
+    try {
+      const payload = {
+        route_id: apiResult.best_route.route_id,
+        origin: apiResult.query.origin,
+        destination: apiResult.query.destination,
+        cargo_type: apiResult.query.cargo_type,
+        containers: apiResult.query.containers,
+        container_type: containerType,
+        customer_name: customerName,
+        margin_percent: parseFloat(marginPercent) || 15.0
+      }
+
+      const res = await fetch(`${API_URL}/api/quotation/generate`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      const data = await res.json()
+
+      if (!res.ok || data.status === 'error') {
+        throw new Error(data.message || data.detail || 'Failed to generate customer quotation.')
+      }
+
+      setQuotationResult(data)
+      setReportToast('✅ Formal Quotation generated successfully!')
+      setTimeout(() => setReportToast(''), 4000)
+    } catch (err) {
+      alert(`Quotation Error: ${err.message}`)
     }
   }
 
@@ -186,7 +318,7 @@ function Dashboard({ user, onLogout }) {
     }
   }
 
-  // PDF Report Generation Handler
+  // PDF Route Analysis Report Generation Handler
   const handleDownloadPDF = () => {
     if (!apiResult || !apiResult.best_route) {
       alert('No Route Analysis Available. Please analyze a route in Route Intelligence first.')
@@ -222,7 +354,7 @@ function Dashboard({ user, onLogout }) {
       let y = 48
 
       // Section 1: Query Parameters Box
-      doc.setFillColor(242, 249, 251) // Light Cyan Fill
+      doc.setFillColor(242, 249, 251)
       doc.rect(14, y, 182, 34, 'F')
       doc.setDrawColor(226, 232, 240)
       doc.rect(14, y, 182, 34, 'S')
@@ -238,19 +370,19 @@ function Dashboard({ user, onLogout }) {
       doc.text(`Origin Port: ${query.origin}`, 18, y + 17)
       doc.text(`Destination Port: ${query.destination}`, 105, y + 17)
       doc.text(`Cargo Type: ${query.cargo_type}`, 18, y + 26)
-      doc.text(`Container Load: ${query.containers} TEU`, 105, y + 26)
+      doc.text(`Container Load: ${query.containers} TEU (${containerType})`, 105, y + 26)
 
       y += 42
 
       // Section 2: Best Route Recommended Banner
-      doc.setFillColor(254, 243, 199) // Soft Gold Fill
+      doc.setFillColor(254, 243, 199)
       doc.rect(14, y, 182, 54, 'F')
       doc.setDrawColor(245, 166, 35)
       doc.rect(14, y, 182, 54, 'S')
 
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
-      doc.setTextColor(146, 64, 14) // Dark Gold
+      doc.setTextColor(146, 64, 14)
       doc.text(`2. RECOMMENDED BEST ROUTE: ${best.route_name}`, 18, y + 8)
 
       doc.setFontSize(10)
@@ -274,14 +406,21 @@ function Dashboard({ user, onLogout }) {
       doc.text(`Chokepoints: ${best.primary_chokepoints || 'N/A'}`, 18, y + 35)
       doc.text(`Reliability Rating: ${best.reliability_rating}%`, 145, y + 35)
 
-      doc.setFont('helvetica', 'italic')
-      doc.setFontSize(8.5)
-      doc.setTextColor(71, 85, 105)
-      doc.text(`Selection Reason: ${best.selection_reason || 'Optimal balance of transit speed and sea reliability.'}`, 18, y + 45)
+      // Section 3: Pricing Integration if calculated
+      if (pricingResult && pricingResult.pricing) {
+        doc.setFont('helvetica', 'bold')
+        doc.setTextColor(24, 166, 106)
+        doc.text(`Estimated Total Freight Cost: $${pricingResult.pricing.total_freight_cost.toLocaleString()} ${pricingResult.currency}`, 18, y + 45)
+      } else {
+        doc.setFont('helvetica', 'italic')
+        doc.setFontSize(8.5)
+        doc.setTextColor(71, 85, 105)
+        doc.text(`Selection Reason: ${best.selection_reason || 'Optimal balance of transit speed and sea reliability.'}`, 18, y + 45)
+      }
 
       y += 62
 
-      // Section 3: Available Route Candidates Table
+      // Section 4: Available Route Candidates Table
       doc.setFontSize(11)
       doc.setFont('helvetica', 'bold')
       doc.setTextColor(6, 43, 73)
@@ -343,6 +482,140 @@ function Dashboard({ user, onLogout }) {
       alert(`Failed to generate PDF: ${err.message}`)
     } finally {
       setReportLoading(prev => ({ ...prev, pdf: false }))
+    }
+  }
+
+  // PDF Freight Pricing Report Generation Handler
+  const handleDownloadPricingPDF = () => {
+    if (!pricingResult || !pricingResult.pricing) {
+      alert('No Freight Pricing Available. Please calculate pricing in the Pricing tab first.')
+      return
+    }
+
+    setReportLoading(prev => ({ ...prev, pricingPdf: true }))
+
+    try {
+      const doc = new jsPDF()
+      const p = pricingResult.pricing
+      const res = pricingResult
+
+      // Header Banner
+      doc.setFillColor(6, 43, 73)
+      doc.rect(0, 0, 210, 38, 'F')
+
+      doc.setTextColor(255, 255, 255)
+      doc.setFontSize(18)
+      doc.setFont('helvetica', 'bold')
+      doc.text('AGENTIC MARITIME BROKERAGE', 14, 16)
+
+      doc.setFontSize(10)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(32, 196, 217)
+      doc.text('OFFICIAL FREIGHT COST & PRICING REPORT', 14, 25)
+
+      doc.setTextColor(226, 232, 240)
+      doc.setFontSize(8)
+      doc.text(`Generated: ${new Date().toLocaleString()}`, 140, 25)
+
+      let y = 48
+
+      // Section 1: Route & Shipment Details Box
+      doc.setFillColor(242, 249, 251)
+      doc.rect(14, y, 182, 38, 'F')
+      doc.setDrawColor(226, 232, 240)
+      doc.rect(14, y, 182, 38, 'S')
+
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(6, 43, 73)
+      doc.text('1. SHIPMENT & ROUTE PARAMETERS', 18, y + 8)
+
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(30, 41, 59)
+      doc.text(`Route ID: ${res.route_id}`, 18, y + 17)
+      doc.text(`Route Name: ${res.route_name}`, 105, y + 17)
+      doc.text(`Corridor: ${res.origin} -> ${res.destination}`, 18, y + 26)
+      doc.text(`Cargo Type: ${res.cargo_type}`, 105, y + 26)
+      doc.text(`Containers: ${res.containers} x ${res.container_type}`, 18, y + 34)
+      doc.text(`Transshipments: ${res.transshipments}`, 105, y + 34)
+
+      y += 46
+
+      // Section 2: Pricing Breakdown Table
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(6, 43, 73)
+      doc.text('2. FREIGHT COST BREAKDOWN (PRICING AGENT)', 14, y)
+
+      y += 6
+
+      doc.setFillColor(7, 59, 92)
+      doc.rect(14, y, 182, 8, 'F')
+      doc.setFontSize(9)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(255, 255, 255)
+      doc.text('Cost Component', 18, y + 6)
+      doc.text('Formula / Rate Calculation', 90, y + 6)
+      doc.text('Amount (USD)', 160, y + 6)
+
+      y += 8
+
+      const costRows = [
+        { label: 'Base Ocean Freight', formula: `$${p.rates_per_container.base_freight_per_container} x ${res.containers} containers`, amount: p.base_freight },
+        { label: 'Fuel Surcharge (BAF)', formula: `$${p.rates_per_container.fuel_surcharge_per_container} x ${res.containers} containers`, amount: p.fuel_surcharge },
+        { label: 'Port Handling (THC)', formula: `$${p.rates_per_container.port_handling_per_container} x ${res.containers} containers`, amount: p.port_handling },
+        { label: 'Transshipment Charges', formula: `$${p.rates_per_container.transshipment_charge_per_container} x ${res.containers} cont x ${res.transshipments} stops`, amount: p.transshipment_charge },
+        { label: 'Other Surcharges', formula: `$${p.rates_per_container.other_charges_per_container} x ${res.containers} containers`, amount: p.other_charges }
+      ]
+
+      costRows.forEach((row, idx) => {
+        if (idx % 2 === 0) {
+          doc.setFillColor(248, 250, 252)
+          doc.rect(14, y, 182, 8, 'F')
+        }
+        doc.setDrawColor(226, 232, 240)
+        doc.line(14, y + 8, 196, y + 8)
+
+        doc.setFontSize(9)
+        doc.setFont('helvetica', 'normal')
+        doc.setTextColor(30, 41, 59)
+        doc.text(row.label, 18, y + 6)
+        doc.text(row.formula, 90, y + 6)
+        doc.setFont('helvetica', 'bold')
+        doc.text(`$${row.amount.toLocaleString()} USD`, 160, y + 6)
+
+        y += 8
+      })
+
+      // Total Cost Row Box
+      y += 4
+      doc.setFillColor(236, 253, 245)
+      doc.rect(14, y, 182, 14, 'F')
+      doc.setDrawColor(24, 166, 106)
+      doc.rect(14, y, 182, 14, 'S')
+
+      doc.setFontSize(11)
+      doc.setFont('helvetica', 'bold')
+      doc.setTextColor(6, 95, 70)
+      doc.text('TOTAL FREIGHT COST (NET COST):', 18, y + 9)
+      doc.setFontSize(14)
+      doc.text(`$${p.total_freight_cost.toLocaleString()} ${res.currency}`, 145, y + 9)
+
+      // Footer
+      doc.setFontSize(8)
+      doc.setFont('helvetica', 'normal')
+      doc.setTextColor(100, 116, 139)
+      doc.text('Agentic AI Pricing Agent • Official Dataset-backed Calculation', 14, 285)
+      doc.text('Page 1 of 1', 180, 285)
+
+      doc.save(`Freight_Pricing_Report_${res.origin}_to_${res.destination}.pdf`)
+      setReportToast('✅ Freight Pricing PDF downloaded successfully!')
+      setTimeout(() => setReportToast(''), 4000)
+    } catch (err) {
+      alert(`Failed to generate Pricing PDF: ${err.message}`)
+    } finally {
+      setReportLoading(prev => ({ ...prev, pricingPdf: false }))
     }
   }
 
@@ -468,6 +741,29 @@ function Dashboard({ user, onLogout }) {
               <span className="menu-label">Route Intelligence</span>
             </button>
 
+            {/* NEW PRICING AGENT TAB */}
+            <button
+              className={`menu-link ${activeTab === 'pricing' ? 'active' : ''}`}
+              onClick={() => setActiveTab('pricing')}
+            >
+              <span className="menu-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              </span>
+              <span className="menu-label">Pricing Agent</span>
+              {pricingResult && <span className="badge-count-pill" style={{ background: '#18A66A', color: '#fff' }}>✓</span>}
+            </button>
+
+            {/* NEW QUOTATION AGENT TAB */}
+            <button
+              className={`menu-link ${activeTab === 'quotation' ? 'active' : ''}`}
+              onClick={() => setActiveTab('quotation')}
+            >
+              <span className="menu-icon">
+                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+              </span>
+              <span className="menu-label">Quotation Agent</span>
+            </button>
+
             <button
               className={`menu-link ${activeTab === 'shipments' ? 'active' : ''}`}
               onClick={() => setActiveTab('shipments')}
@@ -563,7 +859,7 @@ function Dashboard({ user, onLogout }) {
           <div className="header-right-actions">
             <div className="status-pill-green">
               <span className="dot-green"></span>
-              <span>Route Agent: <strong>Active</strong></span>
+              <span>Agents: <strong>Active</strong></span>
             </div>
 
             <div className="user-profile-chip">
@@ -637,7 +933,7 @@ function Dashboard({ user, onLogout }) {
                   </div>
                 </div>
 
-                {/* CARD 3: Best Route Score (GOLD HIGHLIGHT) */}
+                {/* CARD 3: Best Route Score */}
                 <div className="kpi-card highlight-gold-card">
                   <div className="kpi-top-row">
                     <div className="kpi-icon-circle gold">
@@ -653,24 +949,26 @@ function Dashboard({ user, onLogout }) {
                   </div>
                 </div>
 
-                {/* CARD 4: Average Transit Time */}
+                {/* CARD 4: Estimated Freight Cost */}
                 <div className="kpi-card">
                   <div className="kpi-top-row">
-                    <div className="kpi-icon-circle blue">
-                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B5D7A" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+                    <div className="kpi-icon-circle green">
+                      <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18A66A" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                     </div>
-                    <span className="kpi-trend-pill green">Fastest Transit</span>
+                    <span className="kpi-trend-pill green">Pricing Agent</span>
                   </div>
-                  <div className="kpi-label">Average Transit Time</div>
-                  <div className="kpi-main-val">{fastestTransit}</div>
+                  <div className="kpi-label">Latest Freight Cost</div>
+                  <div className="kpi-main-val" style={{ color: '#18A66A' }}>
+                    {pricingResult?.pricing ? `$${pricingResult.pricing.total_freight_cost.toLocaleString()}` : '$21,500'}
+                  </div>
                   <div className="kpi-sub-row">
-                    <span>Sea transit duration</span>
+                    <span>{pricingResult ? `${pricingResult.containers} x ${pricingResult.container_type}` : '10 x 40ft Containers'}</span>
                     <svg width="48" height="16" viewBox="0 0 48 16" fill="none"><path d="M0 10 Q12 2 24 12 T48 4" stroke="#18A66A" strokeWidth="2" fill="none"/></svg>
                   </div>
                 </div>
               </section>
 
-              {/* 5. MAIN DASHBOARD GRID: GLOBAL MARITIME INTELLIGENCE + AI AGENTS */}
+              {/* 5. MAIN DASHBOARD GRID */}
               <div className="dashboard-main-grid">
 
                 {/* GLOBAL MARITIME INTELLIGENCE PANEL */}
@@ -687,11 +985,11 @@ function Dashboard({ user, onLogout }) {
                     </select>
                   </div>
 
-                  {/* RICH OCEAN VISUAL INTELLIGENCE CONTAINER */}
+                  {/* RICH OCEAN VISUAL CONTAINER */}
                   <div className="intelligence-visual-container" style={{ backgroundImage: `url('/images/lighthouse_ocean.png')` }}>
                     <div className="visual-gradient-overlay"></div>
 
-                    {/* 6 FLOATING CATEGORIES ROW */}
+                    {/* FLOATING CATEGORIES ROW */}
                     <div className="intelligence-categories-row">
                       <div className="category-chip">
                         <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/><circle cx="12" cy="12" r="10"/></svg></div>
@@ -699,38 +997,28 @@ function Dashboard({ user, onLogout }) {
                       </div>
 
                       <div className="category-chip">
-                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg></div>
-                        <span>Risk Assessment</span>
-                      </div>
-
-                      <div className="category-chip">
                         <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
-                        <span>Cost Intelligence</span>
+                        <span>Pricing Agent</span>
                       </div>
 
                       <div className="category-chip">
-                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.4 19 2c1 2 2 4.1 2 7 0 6-4.5 11-10 11z"/><path d="M2 21c0-3 1.85-5.36 5.08-6C9.5 14.52 12 13 13 12"/></svg></div>
+                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg></div>
+                        <span>Quotation Agent</span>
+                      </div>
+
+                      <div className="category-chip">
+                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M11 20A7 7 0 0 1 9.8 6.1C15.5 5 17 4.4 19 2c1 2 2 4.1 2 7 0 6-4.5 11-10 11z"/></svg></div>
                         <span>Emission Insights</span>
-                      </div>
-
-                      <div className="category-chip">
-                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg></div>
-                        <span>Port Analytics</span>
-                      </div>
-
-                      <div className="category-chip">
-                        <div className="chip-icon-circle"><svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg></div>
-                        <span>Weather Awareness</span>
                       </div>
                     </div>
 
                     {/* CENTER AI INSIGHT BOX & BUTTON */}
                     <div className="ai-insight-quote-box">
                       <p className="quote-text">
-                        "Leveraging global data and AI to recommend the most efficient, cost-effective and sustainable maritime routes."
+                        "Leveraging global data and AI to calculate exact freight pricing and calculate optimal customer quotations."
                       </p>
-                      <button className="btn-explore-orange" onClick={() => setActiveTab('route-intelligence')}>
-                        Explore Route Intelligence →
+                      <button className="btn-explore-orange" onClick={() => setActiveTab('pricing')}>
+                        Calculate Freight Pricing →
                       </button>
                     </div>
 
@@ -745,18 +1033,10 @@ function Dashboard({ user, onLogout }) {
                       </div>
 
                       <div className="stat-item">
-                        <span className="stat-icon">🔀</span>
+                        <span className="stat-icon">💰</span>
                         <div className="stat-text">
-                          <strong>6</strong>
-                          <span>Major Trade Corridors</span>
-                        </div>
-                      </div>
-
-                      <div className="stat-item">
-                        <span className="stat-icon">🌿</span>
-                        <div className="stat-text">
-                          <strong>-28%</strong>
-                          <span>Estimated CO₂ Emissions</span>
+                          <strong>pricing.csv</strong>
+                          <span>Dataset Loaded</span>
                         </div>
                       </div>
 
@@ -773,9 +1053,6 @@ function Dashboard({ user, onLogout }) {
                     <div className="bottom-right-decorative">
                       <span className="script-text">Beyond Boundaries</span>
                       <span className="sub-script-text">For a Cleaner Ocean</span>
-                      <svg width="80" height="12" viewBox="0 0 80 12" fill="none">
-                        <path d="M0 6 Q20 0 40 6 T80 6" stroke="#20C4D9" strokeWidth="1.5" fill="none"/>
-                      </svg>
                     </div>
                   </div>
                 </div>
@@ -788,7 +1065,7 @@ function Dashboard({ user, onLogout }) {
                   </div>
 
                   <div className="agents-vertical-list">
-                    <div className="agent-card-row active">
+                    <div className="agent-card-row active" onClick={() => setActiveTab('route-intelligence')} style={{ cursor: 'pointer' }}>
                       <div className="agent-icon-box cyan">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/><circle cx="12" cy="12" r="10"/></svg>
                       </div>
@@ -797,33 +1074,33 @@ function Dashboard({ user, onLogout }) {
                           <strong>Route Agent</strong>
                           <span className="status-tag green">● Active ›</span>
                         </div>
-                        <p>Route analysis and optimization</p>
+                        <p>Route analysis & optimization (route_dataset.csv)</p>
                       </div>
                     </div>
 
-                    <div className="agent-card-row future">
+                    <div className="agent-card-row active" onClick={() => setActiveTab('pricing')} style={{ cursor: 'pointer' }}>
                       <div className="agent-icon-box orange">
                         <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#F5A623" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
                       </div>
                       <div className="agent-details">
                         <div className="agent-title-row">
                           <strong>Pricing Agent</strong>
-                          <span className="status-tag gray">● Future ›</span>
+                          <span className="status-tag green">● Active ›</span>
                         </div>
-                        <p>Freight rate calculation and quotation</p>
+                        <p>Freight rate calculation (pricing.csv)</p>
                       </div>
                     </div>
 
-                    <div className="agent-card-row future">
+                    <div className="agent-card-row active" onClick={() => setActiveTab('quotation')} style={{ cursor: 'pointer' }}>
                       <div className="agent-icon-box blue">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B5D7A" strokeWidth="2"><path d="M17.5 19H9a7 7 0 1 1 6.71-9h1.79a4.5 4.5 0 1 1 0 9z"/></svg>
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#0B5D7A" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
                       </div>
                       <div className="agent-details">
                         <div className="agent-title-row">
-                          <strong>Weather Agent</strong>
-                          <span className="status-tag gray">● Future ›</span>
+                          <strong>Quotation Agent</strong>
+                          <span className="status-tag green">● Active ›</span>
                         </div>
-                        <p>Weather and sea condition analysis</p>
+                        <p>Customer quotation & margin calculation</p>
                       </div>
                     </div>
 
@@ -834,22 +1111,9 @@ function Dashboard({ user, onLogout }) {
                       <div className="agent-details">
                         <div className="agent-title-row">
                           <strong>Margin Agent</strong>
-                          <span className="status-tag gray">● Future ›</span>
+                          <span className="status-tag gray">● Ready (Structured)</span>
                         </div>
-                        <p>Margin optimization</p>
-                      </div>
-                    </div>
-
-                    <div className="agent-card-row future">
-                      <div className="agent-icon-box gray">
-                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#64748B" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-                      </div>
-                      <div className="agent-details">
-                        <div className="agent-title-row">
-                          <strong>Customs Agent</strong>
-                          <span className="status-tag gray">● Future ›</span>
-                        </div>
-                        <p>Customs and compliance</p>
+                        <p>Profit margin optimization</p>
                       </div>
                     </div>
                   </div>
@@ -859,8 +1123,6 @@ function Dashboard({ user, onLogout }) {
 
               {/* RECENT ROUTE ANALYSES TABLE & QUICK ACTIONS ROW */}
               <div className="dashboard-bottom-grid">
-
-                {/* RECENT ROUTE ANALYSES TABLE */}
                 <div className="ocean-card recent-table-card">
                   <div className="card-header-between">
                     <h3 className="card-title">Recent Route Analyses</h3>
@@ -911,36 +1173,34 @@ function Dashboard({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* QUICK ACTIONS CARD */}
                 <div className="ocean-card quick-actions-card">
                   <h3 className="card-title" style={{ marginBottom: '1rem' }}>Quick Actions</h3>
                   <div className="quick-actions-grid">
                     <button className="action-tile" onClick={() => setActiveTab('route-intelligence')}>
                       <span className="tile-icon">🚀</span>
-                      <strong>Analyze New Route</strong>
-                      <span className="tile-sub">Find optimal routes</span>
+                      <strong>Analyze Route</strong>
+                      <span className="tile-sub">Route Intelligence</span>
                     </button>
 
-                    <button className="action-tile" onClick={() => setActiveTab('shipments')}>
-                      <span className="tile-icon">🚢</span>
-                      <strong>Manage Shipments</strong>
-                      <span className="tile-sub">View and track shipments</span>
+                    <button className="action-tile" onClick={() => setActiveTab('pricing')}>
+                      <span className="tile-icon">💰</span>
+                      <strong>Calculate Freight</strong>
+                      <span className="tile-sub">Pricing Agent</span>
+                    </button>
+
+                    <button className="action-tile" onClick={() => setActiveTab('quotation')}>
+                      <span className="tile-icon">📋</span>
+                      <strong>Create Quotation</strong>
+                      <span className="tile-sub">Quotation Agent</span>
                     </button>
 
                     <button className="action-tile" onClick={() => setActiveTab('reports')}>
-                      <span className="tile-icon">📋</span>
-                      <strong>Generate Reports</strong>
-                      <span className="tile-sub">Create detailed reports</span>
-                    </button>
-
-                    <button className="action-tile" onClick={() => setActiveTab('analytics')}>
-                      <span className="tile-icon">📈</span>
-                      <strong>View Analytics</strong>
-                      <span className="tile-sub">Explore insights</span>
+                      <span className="tile-icon">📑</span>
+                      <strong>Download Reports</strong>
+                      <span className="tile-sub">PDF & CSV exports</span>
                     </button>
                   </div>
                 </div>
-
               </div>
 
             </div>
@@ -1123,6 +1383,12 @@ function Dashboard({ user, onLogout }) {
                       <h4 className="why-title-head">Why this route?</h4>
                       <p className="why-body-desc">{apiResult.best_route.selection_reason}</p>
                     </div>
+
+                    <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>
+                      <button className="btn-explore-orange" style={{ width: 'auto', padding: '0.65rem 1.5rem' }} onClick={() => setActiveTab('pricing')}>
+                        Calculate Freight Pricing for {apiResult.best_route.route_name} →
+                      </button>
+                    </div>
                   </div>
 
                   {/* AVAILABLE ROUTES COMPARISON TABLE */}
@@ -1179,7 +1445,382 @@ function Dashboard({ user, onLogout }) {
           )}
 
           {/* =================================================================
-             PAGE 3: SHIPMENTS PAGE (activeTab === 'shipments')
+             PAGE 3: PRICING AGENT PAGE (activeTab === 'pricing')
+             ================================================================= */}
+          {activeTab === 'pricing' && (
+            <div className="pricing-page-view">
+              <div className="page-header-banner">
+                <h2 className="page-title">Freight Pricing Agent</h2>
+                <p className="page-subtitle">Calculate exact freight cost breakdown using dataset rates (pricing.csv)</p>
+              </div>
+
+              {!apiResult || !apiResult.best_route ? (
+                <div className="ocean-card alert-warning-ocean" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                  <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.75rem' }}>⚠️</span>
+                  <h3 style={{ color: '#062B49', marginBottom: '0.5rem' }}>No Active Route Analysis Found</h3>
+                  <p style={{ color: '#475569', marginBottom: '1.25rem', maxWidth: '500px', margin: '0 auto 1.25rem' }}>
+                    Pricing Agent requires a successful route analysis to retrieve the selected Route ID, transshipment counts, and shipment details.
+                  </p>
+                  <button className="btn-primary-teal" style={{ width: 'auto', margin: '0 auto' }} onClick={() => setActiveTab('route-intelligence')}>
+                    🚀 Go to Route Intelligence & Analyze Route
+                  </button>
+                </div>
+              ) : (
+                <div className="pricing-content-container">
+
+                  {/* SHIPMENT & SELECTED ROUTE SUMMARY CARD */}
+                  <div className="ocean-card summary-bar-card" style={{ marginBottom: '1.5rem' }}>
+                    <div className="card-header-between" style={{ marginBottom: '0.85rem' }}>
+                      <div className="summary-title-label" style={{ margin: 0 }}>Selected Route & Shipment Parameters</div>
+                      <span className="pill-status green">Best Route: {apiResult.best_route.route_id}</span>
+                    </div>
+
+                    <div className="summary-items-row">
+                      <div><span>Origin:</span> <strong>{apiResult.query.origin}</strong></div>
+                      <div><span>Destination:</span> <strong>{apiResult.query.destination}</strong></div>
+                      <div><span>Cargo:</span> <strong>{apiResult.query.cargo_type}</strong></div>
+                      <div><span>Containers:</span> <strong>{apiResult.query.containers} TEU</strong></div>
+                      <div><span>Selected Route:</span> <strong>{apiResult.best_route.route_name}</strong></div>
+                      <div><span>Transit Time:</span> <strong>{apiResult.best_route.transit_days} Days</strong></div>
+                      <div><span>Distance:</span> <strong>{apiResult.best_route.distance_nautical_miles.toLocaleString()} NM</strong></div>
+                      <div><span>Transshipments:</span> <strong>{apiResult.best_route.transshipments}</strong></div>
+                    </div>
+
+                    {/* CONTAINER TYPE SELECTOR */}
+                    <div style={{ marginTop: '1.25rem', paddingTop: '1rem', borderTop: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                        <label style={{ fontSize: '0.88rem', fontWeight: '700', color: '#062B49' }}>Container Type:</label>
+                        <select
+                          value={containerType}
+                          onChange={(e) => {
+                            setContainerType(e.target.value)
+                            calculateFreightPrice(e.target.value)
+                          }}
+                          className="form-control"
+                          style={{ width: '140px', padding: '0.45rem 0.85rem' }}
+                        >
+                          <option value="40ft">40ft (Standard)</option>
+                          <option value="20ft">20ft (Heavy)</option>
+                        </select>
+                      </div>
+
+                      <button
+                        className="btn-primary-teal"
+                        style={{ width: 'auto', padding: '0.65rem 1.75rem' }}
+                        onClick={() => calculateFreightPrice(containerType)}
+                        disabled={pricingLoading}
+                      >
+                        {pricingLoading ? 'Calculating Freight...' : '💰 Calculate Freight Cost'}
+                      </button>
+                    </div>
+                  </div>
+
+                  {pricingError && (
+                    <div className="alert-banner alert-error" style={{ marginBottom: '1.25rem' }}>
+                      {pricingError}
+                    </div>
+                  )}
+
+                  {/* PRICING RESULT BREAKDOWN CARD */}
+                  {pricingResult && pricingResult.pricing && (
+                    <div className="ocean-card pricing-breakdown-card" style={{ animation: 'loginCardFadeIn 0.3s ease-out' }}>
+                      <div className="card-header-between" style={{ marginBottom: '1.25rem' }}>
+                        <div>
+                          <h3 className="card-title">Freight Cost Breakdown</h3>
+                          <p className="card-subtitle">Dataset Rate Query Result from <code>pricing.csv</code></p>
+                        </div>
+                        <span className="score-gold-badge" style={{ fontSize: '0.88rem' }}>
+                          Currency: {pricingResult.currency}
+                        </span>
+                      </div>
+
+                      {/* BREAKDOWN TABLE */}
+                      <div className="table-responsive">
+                        <table className="ocean-data-table">
+                          <thead>
+                            <tr>
+                              <th>Cost Component</th>
+                              <th>Rate / Formula</th>
+                              <th>Per Container</th>
+                              <th>Containers</th>
+                              <th>Subtotal ({pricingResult.currency})</th>
+                            </tr>
+                          </thead>
+                          <tbody>
+                            <tr>
+                              <td><strong>Base Freight</strong></td>
+                              <td className="td-muted">Base rate x {pricingResult.containers}</td>
+                              <td>${pricingResult.pricing.rates_per_container.base_freight_per_container}</td>
+                              <td className="td-bold">{pricingResult.containers}</td>
+                              <td className="td-bold">${pricingResult.pricing.base_freight.toLocaleString()}</td>
+                            </tr>
+                            <tr>
+                              <td><strong>Fuel Surcharge (BAF)</strong></td>
+                              <td className="td-muted">Bunker Surcharge x {pricingResult.containers}</td>
+                              <td>${pricingResult.pricing.rates_per_container.fuel_surcharge_per_container}</td>
+                              <td className="td-bold">{pricingResult.containers}</td>
+                              <td className="td-bold">${pricingResult.pricing.fuel_surcharge.toLocaleString()}</td>
+                            </tr>
+                            <tr>
+                              <td><strong>Port Handling (THC)</strong></td>
+                              <td className="td-muted">Terminal Handling x {pricingResult.containers}</td>
+                              <td>${pricingResult.pricing.rates_per_container.port_handling_per_container}</td>
+                              <td className="td-bold">{pricingResult.containers}</td>
+                              <td className="td-bold">${pricingResult.pricing.port_handling.toLocaleString()}</td>
+                            </tr>
+                            <tr>
+                              <td><strong>Transshipment Charges</strong></td>
+                              <td className="td-muted">
+                                ${pricingResult.pricing.rates_per_container.transshipment_charge_per_container} x {pricingResult.containers} cont x {pricingResult.transshipments} stops
+                              </td>
+                              <td>${pricingResult.pricing.rates_per_container.transshipment_charge_per_container}</td>
+                              <td className="td-bold">{pricingResult.containers}</td>
+                              <td className="td-bold">${pricingResult.pricing.transshipment_charge.toLocaleString()}</td>
+                            </tr>
+                            <tr>
+                              <td><strong>Other Charges</strong></td>
+                              <td className="td-muted">Documentation & Security x {pricingResult.containers}</td>
+                              <td>${pricingResult.pricing.rates_per_container.other_charges_per_container}</td>
+                              <td className="td-bold">{pricingResult.containers}</td>
+                              <td className="td-bold">${pricingResult.pricing.other_charges.toLocaleString()}</td>
+                            </tr>
+                          </tbody>
+                        </table>
+                      </div>
+
+                      {/* TOTAL FREIGHT COST HIGHLIGHT BOX */}
+                      <div className="total-cost-highlight-box" style={{
+                        marginTop: '1.5rem',
+                        padding: '1.35rem 1.75rem',
+                        background: 'linear-gradient(135deg, #ECFDF5 0%, #E0F2FE 100%)',
+                        border: '2px solid #10B981',
+                        borderRadius: '16px',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        boxShadow: '0 4px 16px rgba(16, 185, 129, 0.15)'
+                      }}>
+                        <div>
+                          <span style={{ fontSize: '0.8rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#065F46', display: 'block' }}>
+                            TOTAL FREIGHT COST (NET COST)
+                          </span>
+                          <span style={{ fontSize: '0.85rem', color: '#0369A1', fontWeight: '600' }}>
+                            Calculated by Pricing Agent for {pricingResult.containers} x {pricingResult.container_type} TEU
+                          </span>
+                        </div>
+
+                        <div style={{ textAlign: 'right' }}>
+                          <span style={{ fontSize: '2.1rem', fontWeight: '800', color: '#064E3B', letterSpacing: '-0.02em' }}>
+                            ${pricingResult.pricing.total_freight_cost.toLocaleString()}
+                          </span>
+                          <span style={{ fontSize: '0.9rem', fontWeight: '700', color: '#047857', marginLeft: '0.4rem' }}>
+                            {pricingResult.currency}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* MARGIN AGENT COMPATIBILITY PREVIEW */}
+                      <div style={{ marginTop: '1.25rem', padding: '1rem', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+
+
+                        <div>
+                          <span style={{ fontSize: '0.82rem', fontWeight: '700', color: '#0F8B8D' }}>💡 MARGIN AGENT STRUCTURE PREVIEW</span>
+                          <p style={{ fontSize: '0.82rem', color: '#475569', margin: '0.2rem 0 0' }}>
+                            Estimated Customer Price (at 15% margin): <strong>${Math.round(pricingResult.pricing.total_freight_cost * 1.15).toLocaleString()} USD</strong> | Est. Profit: <strong>${Math.round(pricingResult.pricing.total_freight_cost * 0.15).toLocaleString()} USD</strong>
+                          </p>
+                        </div>
+
+                        <button
+                          className="btn-explore-orange"
+                          style={{ width: 'auto', padding: '0.65rem 1.5rem', margin: 0 }}
+                          onClick={() => {
+                            generateCustomerQuotation()
+                            setActiveTab('quotation')
+                          }}
+                        >
+                          Generate Customer Quotation →
+                        </button>
+                      </div>
+
+                    </div>
+                  )}
+
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE 4: QUOTATION AGENT PAGE (activeTab === 'quotation')
+             ================================================================= */}
+          {activeTab === 'quotation' && (
+            <div className="quotation-page-view">
+              <div className="page-header-banner">
+                <h2 className="page-title">Quotation Agent</h2>
+                <p className="page-subtitle">Generate official customer freight quotations with broker markup</p>
+              </div>
+
+              {!pricingResult ? (
+                <div className="ocean-card alert-warning-ocean" style={{ textAlign: 'center', padding: '2.5rem 1.5rem' }}>
+                  <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.75rem' }}>📋</span>
+                  <h3 style={{ color: '#062B49', marginBottom: '0.5rem' }}>Freight Pricing Not Calculated Yet</h3>
+                  <p style={{ color: '#475569', marginBottom: '1.25rem', maxWidth: '500px', margin: '0 auto 1.25rem' }}>
+                    Quotation Agent consumes the Pricing Agent result to generate formal quotes.
+                  </p>
+                  <button className="btn-primary-teal" style={{ width: 'auto', margin: '0 auto' }} onClick={() => setActiveTab('pricing')}>
+                    💰 Go to Pricing Agent & Calculate Freight
+                  </button>
+                </div>
+              ) : (
+                <div className="quotation-content-container">
+
+                  {/* CONTROLS CARD */}
+                  <div className="ocean-card form-section-card" style={{ marginBottom: '1.5rem' }}>
+                    <h3 className="card-title" style={{ marginBottom: '1rem' }}>Quotation Parameters</h3>
+
+                    <div className="form-fields-grid">
+                      <div className="form-field">
+                        <label>Customer / Client Name</label>
+                        <input
+                          type="text"
+                          className="form-control"
+                          value={customerName}
+                          onChange={(e) => setCustomerName(e.target.value)}
+                          placeholder="Enter client company name"
+                        />
+                      </div>
+
+                      <div className="form-field">
+                        <label>Broker Margin (%)</label>
+                        <input
+                          type="number"
+                          step="0.5"
+                          min="0"
+                          max="100"
+                          className="form-control"
+                          value={marginPercent}
+                          onChange={(e) => setMarginPercent(e.target.value)}
+                        />
+                      </div>
+                    </div>
+
+                    <button
+                      className="btn-primary-teal"
+                      style={{ marginTop: '1rem' }}
+                      onClick={generateCustomerQuotation}
+                    >
+                      📄 Generate / Update Quotation
+                    </button>
+                  </div>
+
+                  {/* FORMAL QUOTATION DOCUMENT CARD */}
+                  <div className="ocean-card quotation-document-card" style={{
+                    background: '#FFFFFF',
+                    border: '1.5px solid #0B5D7A',
+                    borderRadius: '20px',
+                    padding: '2.25rem',
+                    boxShadow: '0 12px 36px rgba(6, 43, 73, 0.1)'
+                  }}>
+                    {/* DOCUMENT HEADER */}
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', borderBottom: '2px solid #062B49', paddingBottom: '1.25rem', marginBottom: '1.5rem' }}>
+                      <div>
+                        <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#062B49', margin: 0 }}>FREIGHT QUOTATION</h2>
+                        <p style={{ fontSize: '0.85rem', color: '#0F8B8D', fontWeight: '700', margin: '0.2rem 0 0' }}>AGENTIC MARITIME BROKERAGE PLATFORM</p>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '0.88rem', fontWeight: '800', color: '#F5A623', background: '#FEF3C7', padding: '0.35rem 0.85rem', borderRadius: '10px', display: 'inline-block', marginBottom: '0.35rem' }}>
+                          {quotationResult?.quotation_id || 'QTE-20260910-8842'}
+                        </span>
+                        <div style={{ fontSize: '0.78rem', color: '#64748B' }}>Date: {new Date().toLocaleDateString()}</div>
+                        <div style={{ fontSize: '0.78rem', color: '#64748B' }}>Valid Until: 14 Days from issue</div>
+                      </div>
+                    </div>
+
+                    {/* CLIENT & SHIPMENT INFORMATION */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1.5rem', marginBottom: '1.5rem', padding: '1.15rem', background: '#F8FAFC', borderRadius: '12px', border: '1px solid #E2E8F0' }}>
+                      <div>
+                        <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>CLIENT DETAILS</span>
+                        <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>{customerName || 'Valued Client'}</div>
+                        <div style={{ fontSize: '0.82rem', color: '#475569' }}>Account Type: Commercial Freight Importer</div>
+                      </div>
+
+                      <div>
+                        <span style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>ROUTE & SHIPMENT</span>
+                        <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>
+                          {pricingResult.origin} ➔ {pricingResult.destination}
+                        </div>
+                        <div style={{ fontSize: '0.82rem', color: '#475569' }}>
+                          Route: <strong>{pricingResult.route_name}</strong> ({pricingResult.containers} x {containerType} TEU)
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* PRICING & CUSTOMER CHARGES TABLE */}
+                    <table className="ocean-data-table" style={{ marginBottom: '1.5rem' }}>
+                      <thead>
+                        <tr>
+                          <th>Description</th>
+                          <th>Load</th>
+                          <th>Base Cost</th>
+                          <th>Margin ({marginPercent}%)</th>
+                          <th>Customer Price ({pricingResult.currency})</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td><strong>Ocean Freight & Surcharges (All-Inclusive)</strong></td>
+                          <td>{pricingResult.containers} x {containerType}</td>
+                          <td>${pricingResult.pricing.total_freight_cost.toLocaleString()}</td>
+                          <td>+ ${Math.round(pricingResult.pricing.total_freight_cost * (parseFloat(marginPercent) / 100)).toLocaleString()}</td>
+                          <td className="td-bold" style={{ fontSize: '1.05rem', color: '#062B49' }}>
+                            ${Math.round(pricingResult.pricing.total_freight_cost * (1 + parseFloat(marginPercent) / 100)).toLocaleString()}
+                          </td>
+                        </tr>
+                      </tbody>
+                    </table>
+
+                    {/* TOTAL CUSTOMER OFFER HIGHLIGHT */}
+                    <div style={{
+                      padding: '1.5rem',
+                      background: 'linear-gradient(135deg, #062B49 0%, #073B5C 100%)',
+                      color: '#FFFFFF',
+                      borderRadius: '14px',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between'
+                    }}>
+                      <div>
+                        <span style={{ fontSize: '0.8rem', fontWeight: '800', textTransform: 'uppercase', letterSpacing: '0.05em', color: '#20C4D9' }}>
+                          FINAL CUSTOMER QUOTATION TOTAL
+                        </span>
+                        <span style={{ fontSize: '0.85rem', color: '#E2E8F0', display: 'block', marginTop: '0.2rem' }}>
+                          Includes all ocean freight, fuel surcharges, port handling & transshipments
+                        </span>
+                      </div>
+
+                      <div style={{ textAlign: 'right' }}>
+                        <span style={{ fontSize: '2.2rem', fontWeight: '800', color: '#FFFFFF' }}>
+                          ${Math.round(pricingResult.pricing.total_freight_cost * (1 + parseFloat(marginPercent) / 100)).toLocaleString()}
+                        </span>
+                        <span style={{ fontSize: '0.9rem', color: '#20C4D9', fontWeight: '700', marginLeft: '0.4rem' }}>
+                          {pricingResult.currency}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div style={{ marginTop: '1.25rem', fontSize: '0.78rem', color: '#64748B', fontStyle: 'italic', textAlign: 'center' }}>
+                      Terms: Quotation valid for 14 days. Rates subject to port congestion, carrier space availability, and fuel price adjustments.
+                    </div>
+                  </div>
+
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE 5: SHIPMENTS PAGE (activeTab === 'shipments')
              ================================================================= */}
           {activeTab === 'shipments' && (
             <div className="shipments-page-view">
@@ -1260,7 +1901,7 @@ function Dashboard({ user, onLogout }) {
           )}
 
           {/* =================================================================
-             PAGE 4: REPORTS PAGE (activeTab === 'reports')
+             PAGE 6: REPORTS PAGE (activeTab === 'reports')
              ================================================================= */}
           {activeTab === 'reports' && (
             <div className="reports-page-view">
@@ -1269,14 +1910,12 @@ function Dashboard({ user, onLogout }) {
                 <p className="page-subtitle">Generate exportable analytical reports for freight pricing & corridors</p>
               </div>
 
-              {/* Toast Notification Banner */}
               {reportToast && (
                 <div className="alert-banner alert-info" style={{ marginBottom: '1.25rem' }}>
                   {reportToast}
                 </div>
               )}
 
-              {/* No Data Warning Notice */}
               {!hasAnalysisData && (
                 <div className="alert-warning-ocean" style={{ marginBottom: '1.5rem' }}>
                   <span>⚠️ <strong>No Route Analysis Available:</strong> Please analyze a route first in <strong>Route Intelligence</strong> to unlock PDF and CSV report exports.</span>
@@ -1328,7 +1967,28 @@ function Dashboard({ user, onLogout }) {
                   </button>
                 </div>
 
-                {/* CARD 3: Transit Time Report */}
+                {/* CARD 3: Freight Pricing Report (ACTIVE!) */}
+                <div className="ocean-card report-card">
+                  <div className="report-card-top">
+                    <span className="report-icon">💰</span>
+                    {pricingResult ? (
+                      <span className="pill-status green">Ready</span>
+                    ) : (
+                      <span className="pill-status gray">No Pricing Data</span>
+                    )}
+                  </div>
+                  <h3>Freight Pricing Report</h3>
+                  <p>Pricing Agent breakdown including base freight, fuel surcharge, port handling, and total freight cost calculations.</p>
+                  <button
+                    className="btn-report-download"
+                    disabled={!pricingResult || reportLoading.pricingPdf}
+                    onClick={handleDownloadPricingPDF}
+                  >
+                    {reportLoading.pricingPdf ? 'Generating PDF...' : 'Download Pricing PDF'}
+                  </button>
+                </div>
+
+                {/* CARD 4: Transit Time Analytics */}
                 <div className="ocean-card report-card">
                   <div className="report-card-top">
                     <span className="report-icon">⏱️</span>
@@ -1343,31 +2003,18 @@ function Dashboard({ user, onLogout }) {
                     View Analytics
                   </button>
                 </div>
-
-                {/* CARD 4: Freight Optimization Report */}
-                <div className="ocean-card report-card">
-                  <div className="report-card-top">
-                    <span className="report-icon">💰</span>
-                    <span className="pill-status gray">Coming Soon</span>
-                  </div>
-                  <h3>Freight Optimization Report</h3>
-                  <p>Pricing Agent module for rate calculations, container surcharges, and margin optimization.</p>
-                  <button className="btn-report-download" disabled>
-                    Module Pending
-                  </button>
-                </div>
               </div>
             </div>
           )}
 
           {/* =================================================================
-             PAGE 5: ANALYTICS PAGE (activeTab === 'analytics')
+             PAGE 7: ANALYTICS PAGE (activeTab === 'analytics')
              ================================================================= */}
           {activeTab === 'analytics' && (
             <div className="analytics-page-view">
               <div className="page-header-banner">
                 <h2 className="page-title">Maritime Analytics</h2>
-                <p className="page-subtitle">Real-time performance trends and route score distributions for your active query</p>
+                <p className="page-subtitle">Real-time performance trends, freight pricing, and route score distributions</p>
               </div>
 
               {/* LATEST ROUTE ANALYSIS OVERVIEW CARD */}
@@ -1377,11 +2024,11 @@ function Dashboard({ user, onLogout }) {
                   <div><span>📍 Corridor:</span> <strong>{apiResult ? `${apiResult.query.origin} ➔ ${apiResult.query.destination}` : 'Chennai ➔ Rotterdam'}</strong></div>
                   <div><span>📦 Cargo & Load:</span> <strong>{apiResult ? `${apiResult.query.cargo_type} (${apiResult.query.containers} TEU)` : 'Electronics (10 TEU)'}</strong></div>
                   <div><span>⭐ Recommended Route:</span> <strong>{apiResult?.best_route?.route_name || 'Express Suez Direct'}</strong></div>
-                  <div><span>📊 Candidates Evaluated:</span> <strong>{apiResult?.matching_count || 0} Routes</strong></div>
+                  <div><span>💰 Freight Cost:</span> <strong>{pricingResult ? `$${pricingResult.pricing.total_freight_cost.toLocaleString()} ${pricingResult.currency}` : 'Calculated in Pricing tab'}</strong></div>
                 </div>
               </div>
 
-              {/* 4 DYNAMIC KPI METRIC CARDS */}
+              {/* DYNAMIC KPI METRIC CARDS */}
               <section className="kpi-cards-grid" style={{ marginBottom: '1.75rem' }}>
                 <div className="kpi-card highlight-gold-card">
                   <div className="kpi-top-row">
@@ -1415,24 +2062,19 @@ function Dashboard({ user, onLogout }) {
 
                 <div className="kpi-card">
                   <div className="kpi-top-row">
-                    <div className="kpi-icon-circle green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18A66A" strokeWidth="2"><circle cx="12" cy="5" r="3"/><line x1="12" y1="22" x2="12" y2="8"/><path d="M5 12H2a10 10 0 0 0 20 0h-3"/></svg></div>
-                    <span className="kpi-trend-pill green">Stops</span>
+                    <div className="kpi-icon-circle green"><svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="#18A66A" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg></div>
+                    <span className="kpi-trend-pill green">Pricing Agent</span>
                   </div>
-                  <div className="kpi-label">Transshipment Stops</div>
-                  <div className="kpi-main-val">
-                    {apiResult?.best_route
-                      ? (apiResult.best_route.transshipments === 0 ? '0 (Direct)' : `${apiResult.best_route.transshipments} Stop`)
-                      : '0 (Direct)'}
+                  <div className="kpi-label">Freight Cost</div>
+                  <div className="kpi-main-val" style={{ color: '#18A66A' }}>
+                    {pricingResult?.pricing ? `$${pricingResult.pricing.total_freight_cost.toLocaleString()}` : '$21,500'}
                   </div>
-                  <div className="kpi-sub-text">
-                    {apiResult?.best_route?.transshipments === 0 ? 'Direct ocean service' : apiResult?.best_route?.transshipment_ports}
-                  </div>
+                  <div className="kpi-sub-text">Calculated via pricing.csv</div>
                 </div>
               </section>
 
               {/* DYNAMIC CHARTS & COMPARISON GRID */}
               <div className="analytics-grid">
-                {/* DYNAMIC ROUTE SCORE COMPARISON BAR CHART */}
                 <div className="ocean-card chart-card">
                   <h3 className="card-title">Route Score Comparison</h3>
                   <p className="card-subtitle" style={{ marginBottom: '1rem' }}>Real-time route score distribution across matching candidate routes</p>
@@ -1465,7 +2107,6 @@ function Dashboard({ user, onLogout }) {
                   )}
                 </div>
 
-                {/* DYNAMIC TRANSIT TIME & DISTANCE BREAKDOWN */}
                 <div className="ocean-card analytics-stat-card">
                   <h3 className="card-title">Transit Time & Distance Breakdown</h3>
                   <p className="card-subtitle" style={{ marginBottom: '1rem' }}>Candidate route performance metrics for {apiResult?.query?.origin || 'Chennai'} ➔ {apiResult?.query?.destination || 'Rotterdam'}</p>
@@ -1497,7 +2138,7 @@ function Dashboard({ user, onLogout }) {
           )}
 
           {/* =================================================================
-             PAGE 6: SETTINGS PAGE (activeTab === 'settings')
+             PAGE 8: SETTINGS PAGE (activeTab === 'settings')
              ================================================================= */}
           {activeTab === 'settings' && (
             <div className="settings-page-view">
@@ -1511,7 +2152,7 @@ function Dashboard({ user, onLogout }) {
                 <div className="profile-info-box" style={{ marginTop: '0.75rem' }}>
                   <div><strong>Email:</strong> {user?.email || 'admin@maritime.com'}</div>
                   <div><strong>Role:</strong> Maritime Freight Broker Administrator</div>
-                  <div><strong>Dataset Version:</strong> Maritime Routes CSV v1.0.0 (71 Complete Routes)</div>
+                  <div><strong>Dataset Version:</strong> Route Dataset (71 Routes) & Pricing Dataset (70 Pricing Rates)</div>
                 </div>
 
                 <h3 className="card-title" style={{ marginTop: '1.75rem' }}>AI Agent Settings</h3>
@@ -1520,12 +2161,16 @@ function Dashboard({ user, onLogout }) {
                   <span className="pill-status green">● Enabled</span>
                 </div>
                 <div className="agent-setting-item">
-                  <span>Pricing Agent (Freight Rate Calculation)</span>
-                  <span className="pill-status gray">○ Disabled (Future Phase)</span>
+                  <span>Pricing Agent (pricing.csv Freight Rate Calculation)</span>
+                  <span className="pill-status green">● Enabled</span>
                 </div>
                 <div className="agent-setting-item">
-                  <span>Weather Agent (Sea & Storm Forecasts)</span>
-                  <span className="pill-status gray">○ Disabled (Future Phase)</span>
+                  <span>Quotation Agent (Customer Quote Generation)</span>
+                  <span className="pill-status green">● Enabled</span>
+                </div>
+                <div className="agent-setting-item">
+                  <span>Margin Agent (Profit Optimization)</span>
+                  <span className="pill-status teal">● Ready (Structured)</span>
                 </div>
               </div>
             </div>
@@ -1548,7 +2193,6 @@ function Dashboard({ user, onLogout }) {
             </div>
 
             <div className="modal-panel-body">
-              {/* QUERY SUMMARY BAR */}
               <div className="summary-bar-card" style={{ marginBottom: '1.25rem' }}>
                 <div className="summary-items-row">
                   <div><span>📍 Origin:</span> <strong>{selectedShipmentModal.origin}</strong></div>
@@ -1558,7 +2202,6 @@ function Dashboard({ user, onLogout }) {
                 </div>
               </div>
 
-              {/* RECOMMENDED ROUTE CARD IN MODAL */}
               {selectedShipmentModal.full_result?.best_route && (
                 <div className="best-recommended-card" style={{ marginBottom: '1.25rem' }}>
                   <div className="best-top-bar">
@@ -1587,7 +2230,7 @@ function Dashboard({ user, onLogout }) {
                   </div>
 
                   <div className="why-box-container">
-                    <h4 className="why-title-head">Selection Reason:</h4>
+                    <h4 className="why-title-head">Why this route?</h4>
                     <p className="why-body-desc">{selectedShipmentModal.full_result.best_route.selection_reason}</p>
                   </div>
                 </div>
@@ -1595,8 +2238,8 @@ function Dashboard({ user, onLogout }) {
             </div>
 
             <div className="modal-panel-footer">
-              <button className="btn-primary-teal" style={{ width: 'auto', padding: '0.6rem 1.5rem' }} onClick={() => setSelectedShipmentModal(null)}>
-                Close Details
+              <button className="btn-primary-teal" onClick={() => setSelectedShipmentModal(null)}>
+                Close Window
               </button>
             </div>
           </div>
