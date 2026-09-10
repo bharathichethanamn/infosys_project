@@ -19,8 +19,10 @@ build/
 .env
 .env.local
 
-# OS / IDE
+# OS / IDE & Presentations
 .DS_Store
 Thumbs.db
 .vscode/
 .idea/
+*.pptx
+
