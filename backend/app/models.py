@@ -37,4 +37,4 @@ class QuotationRequest(BaseModel):
     containers: int = Field(..., gt=0, description="Number of containers", example=10)
     container_type: str = Field(default="40ft", description="Container type", example="40ft")
     customer_name: Optional[str] = Field(default="Valued Maritime Client", description="Client or company name")
-    margin_percent: Optional[float] = Field(default=15.0, ge=0.0, description="Broker margin percentage")
+    margin_percent: Optional[float] = Field(default=15.0, description="Broker margin percentage")

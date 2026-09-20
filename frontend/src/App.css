@@ -1962,4 +1962,48 @@ body {
   }
 }
 
+/* EMPTY STATE BOX STYLING - HIGH CONTRAST & CLEAR VISIBILITY */
+.empty-state-box {
+  padding: 3rem 1.5rem;
+  text-align: center;
+  background-color: #F8FAFC !important;
+  border: 1.5px dashed #CBD5E1 !important;
+  border-radius: 16px;
+  margin: 1.25rem 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 0.5rem;
+  color: #334155 !important;
+}
+
+.empty-state-box .empty-icon {
+  font-size: 2.5rem;
+  margin-bottom: 0.5rem;
+  display: block;
+}
+
+.empty-state-box h3 {
+  color: #062B49 !important;
+  font-size: 1.15rem;
+  font-weight: 800;
+  margin: 0 0 0.35rem 0;
+}
+
+.empty-state-box p {
+  color: #334155 !important;
+  font-size: 0.95rem;
+  font-weight: 500;
+  margin: 0;
+  max-width: 600px;
+  line-height: 1.5;
+}
+
+.empty-state-box strong {
+  color: #0B5D7A !important;
+  font-weight: 700;
+}
+
+
 

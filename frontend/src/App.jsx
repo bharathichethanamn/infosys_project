@@ -11,25 +11,14 @@ function App() {
   const [infoMessage, setInfoMessage] = useState('')
   const [registeredUser, setRegisteredUser] = useState(null)
 
+  // Ensure app link opened directly ALWAYS requires explicit login or registration first
   useEffect(() => {
-    // Check if remember me session exists
-    const savedUser = localStorage.getItem('maritime_user')
-    if (savedUser) {
-      try {
-        setCurrentUser(JSON.parse(savedUser))
-        setIsAuthenticated(true)
-      } catch (e) {
-        localStorage.removeItem('maritime_user')
-      }
-    }
+    localStorage.removeItem('maritime_user')
   }, [])
 
-  const handleLogin = (user, rememberMe) => {
+  const handleLogin = (user) => {
     setCurrentUser(user)
     setIsAuthenticated(true)
-    if (rememberMe) {
-      localStorage.setItem('maritime_user', JSON.stringify(user))
-    }
   }
 
   const handleLogout = () => {
@@ -42,7 +31,7 @@ function App() {
   }
 
   const handleRegisterSuccess = (newUser) => {
-    // Save to demo accounts list in localStorage for current session
+    // Save to demo accounts list in localStorage
     const existingRaw = localStorage.getItem('maritime_demo_accounts')
     let accounts = []
     if (existingRaw) {
@@ -53,10 +42,9 @@ function App() {
     accounts.push(newUser)
     localStorage.setItem('maritime_demo_accounts', JSON.stringify(accounts))
 
-    // Set success info message & prefill newly registered user
-    setRegisteredUser(newUser)
-    setInfoMessage('Account created successfully! Please login with your new credentials.')
-    setCurrentView('login')
+    // Direct transition: New user -> Register -> Dashboard
+    setCurrentUser(newUser)
+    setIsAuthenticated(true)
   }
 
   return (

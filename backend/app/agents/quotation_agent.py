@@ -7,12 +7,17 @@ Supports broker markup percentage, margin calculation, quote validity, and terms
 
 from typing import Dict, Any, Optional
 from datetime import datetime, timedelta
+from app.agents.margin_agent import MarginAgent
 
 
 class QuotationAgent:
     """
     Quotation Agent consuming PricingAgent calculations to generate customer quotations.
+    Delegates all margin calculations to MarginAgent.
     """
+
+    def __init__(self, margin_agent: Optional[MarginAgent] = None):
+        self.margin_agent = margin_agent or MarginAgent()
 
     def generate_quotation(
         self,
@@ -21,11 +26,7 @@ class QuotationAgent:
         margin_percent: float = 15.0
     ) -> Dict[str, Any]:
         """
-        Generates formal customer quotation based on PricingAgent result.
-        
-        Customer Price = Total Freight Cost * (1 + margin_percent / 100)
-        Profit = Customer Price - Total Freight Cost
-        Profit Margin = (Profit / Customer Price) * 100
+        Generates formal customer quotation based on PricingAgent result and MarginAgent calculation.
         """
         if not pricing_result or pricing_result.get("status") != "success":
             return {
@@ -37,11 +38,19 @@ class QuotationAgent:
         total_freight_cost = float(pricing.get("total_freight_cost", 0))
         currency = pricing_result.get("currency", "USD")
 
-        # Apply broker markup/margin
-        margin_factor = 1.0 + (max(0.0, float(margin_percent)) / 100.0)
-        customer_price = round(total_freight_cost * margin_factor, 2)
-        profit = round(customer_price - total_freight_cost, 2)
-        actual_margin_percent = round((profit / customer_price * 100.0) if customer_price > 0 else 0.0, 2)
+        # Delegate margin calculation to standalone MarginAgent
+        margin_res = self.margin_agent.calculate_margin(
+            cost=total_freight_cost,
+            margin_percent=margin_percent,
+            currency=currency
+        )
+
+        if margin_res.get("status") == "error":
+            return margin_res
+
+        customer_price = margin_res.get("customer_price", 0.0)
+        margin_amount = margin_res.get("margin_amount", 0.0)
+        actual_margin_percent = margin_res.get("profit_margin_percent", 0.0)
 
         quote_date = datetime.now()
         valid_until = quote_date + timedelta(days=14)
@@ -67,10 +76,12 @@ class QuotationAgent:
             "financials": {
                 "total_freight_cost": total_freight_cost,
                 "margin_percent": margin_percent,
+                "margin_amount": margin_amount,
                 "customer_price": customer_price,
-                "estimated_profit": profit,
+                "estimated_profit": margin_amount,
                 "profit_margin_percent": actual_margin_percent,
                 "currency": currency
             },
             "terms": "Quotation valid for 14 days. Rates subject to port congestion and bunker fuel price fluctuations."
         }
+
