@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react'
 import { jsPDF } from 'jspdf'
+import RouteMap from './RouteMap'
 
 function Dashboard({ user, onLogout }) {
   const [backendStatus, setBackendStatus] = useState({ connected: false, message: 'Connecting...' })
@@ -20,6 +21,7 @@ function Dashboard({ user, onLogout }) {
 
   // ALWAYS FRESH AGENT STATE ON LOGIN / PAGE LOAD
   const [apiResult, setApiResult] = useState(null)
+  const [selectedMapRoute, setSelectedMapRoute] = useState(null)
 
   // Pricing Agent State (Fresh state on login)
   const [containerType, setContainerType] = useState('40ft')
@@ -94,6 +96,7 @@ function Dashboard({ user, onLogout }) {
   const triggerRouteAnalysis = async (dataToSubmit, saveToHistory = true, animateSteps = true) => {
     // STARTING A NEW ANALYSIS CLEARS PREVIOUS ROUTE, PRICING, AND QUOTATION RESULTS
     setApiResult(null)
+    setSelectedMapRoute(null)
     setPricingResult(null)
     setQuotationResult(null)
     setPricingError('')
@@ -132,6 +135,9 @@ function Dashboard({ user, onLogout }) {
 
       const data = await res.json()
       setApiResult(data)
+      if (data && data.best_route) {
+        setSelectedMapRoute('ALL')
+      }
 
       if (data && (data.matched === false || data.status === 'error' || !data.best_route)) {
         setError(data.message || 'No available route found for this shipment.')
@@ -1718,6 +1724,17 @@ function Dashboard({ user, onLogout }) {
                 </div>
               )}
 
+              {/* INITIAL MAP PROMPT BEFORE ROUTE ANALYSIS */}
+              {!isProcessing && (!apiResult || !apiResult.best_route) && !error && (
+                <div className="ocean-card alert-warning-ocean" style={{ textAlign: 'center', padding: '2.5rem 1.5rem', marginTop: '1.5rem' }}>
+                  <span style={{ fontSize: '2.5rem', display: 'block', marginBottom: '0.75rem' }}>🗺️</span>
+                  <h3 style={{ color: '#062B49', marginBottom: '0.5rem' }}>Map Intelligence Ready</h3>
+                  <p style={{ color: '#475569', margin: '0 auto', maxWidth: '500px', fontWeight: '500' }}>
+                    Run Route Analysis to view the shipping route on the map.
+                  </p>
+                </div>
+              )}
+
               {/* ROUTE ANALYSIS RESULT DISPLAY */}
               {!isProcessing && apiResult && apiResult.matched && apiResult.best_route && (
                 <div className="route-results-section" style={{ marginTop: '1.5rem' }}>
@@ -1772,9 +1789,47 @@ function Dashboard({ user, onLogout }) {
                     </div>
                   </div>
 
+                  {/* MAP INTELLIGENCE COMPONENT */}
+                  <RouteMap
+                    routes={apiResult?.available_routes || []}
+                    bestRouteId={apiResult?.best_route?.route_id}
+                    activeRouteId={selectedMapRoute === 'ALL' || !selectedMapRoute ? 'ALL' : selectedMapRoute?.route_id}
+                    selectedRouteObj={selectedMapRoute === 'ALL' || !selectedMapRoute ? apiResult?.best_route : selectedMapRoute}
+                    originName={apiResult?.query?.origin || ''}
+                    destinationName={apiResult?.query?.destination || ''}
+                    onSelectRoute={(r) => setSelectedMapRoute(r)}
+                    onResetViewAll={() => setSelectedMapRoute('ALL')}
+                  />
+
                   {/* AVAILABLE ROUTES COMPARISON TABLE */}
                   <div className="ocean-card comparison-table-card" style={{ marginTop: '1.5rem' }}>
-                    <h3 className="card-title" style={{ marginBottom: '1rem' }}>Available Routes Comparison</h3>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1rem', flexWrap: 'wrap', gap: '0.5rem' }}>
+                      <h3 className="card-title" style={{ margin: 0 }}>Available Routes Comparison</h3>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                        {selectedMapRoute !== 'ALL' && selectedMapRoute !== null && (
+                          <button
+                            onClick={() => setSelectedMapRoute('ALL')}
+                            style={{
+                              background: 'linear-gradient(135deg, #0F8B8D 0%, #062B49 100%)',
+                              color: 'white',
+                              border: 'none',
+                              padding: '0.4rem 0.85rem',
+                              borderRadius: '8px',
+                              fontSize: '0.8rem',
+                              fontWeight: '600',
+                              cursor: 'pointer',
+                              display: 'inline-flex',
+                              alignItems: 'center',
+                              gap: '0.35rem',
+                              boxShadow: '0 2px 6px rgba(15,139,141,0.25)'
+                            }}
+                          >
+                            🌐 View All Routes on Map
+                          </button>
+                        )}
+                        <span style={{ fontSize: '0.85rem', color: '#64748B' }}>💡 Click any route to view its specific trajectory</span>
+                      </div>
+                    </div>
 
                     <div className="table-responsive">
                       <table className="ocean-data-table">
@@ -1786,14 +1841,21 @@ function Dashboard({ user, onLogout }) {
                             <th>Distance</th>
                             <th>Transshipments</th>
                             <th>Score</th>
-                            <th>Status</th>
+                            <th>Status & Map View</th>
                           </tr>
                         </thead>
                         <tbody>
-                          {apiResult.available_routes.map((route) => {
-                            const isBest = route.route_id === apiResult.best_route.route_id
+                          {(apiResult?.available_routes || []).map((route) => {
+                            const isBest = route?.route_id === apiResult?.best_route?.route_id
+                            const isSingleMode = selectedMapRoute !== 'ALL' && selectedMapRoute !== null
+                            const isSelectedRow = isSingleMode && selectedMapRoute?.route_id === route?.route_id
                             return (
-                              <tr key={route.route_id} className={isBest ? 'best-choice-row' : ''}>
+                              <tr
+                                key={route.route_id}
+                                className={isSelectedRow ? 'best-choice-row' : (isBest && !isSingleMode ? 'best-choice-row' : '')}
+                                style={{ cursor: 'pointer' }}
+                                onClick={() => setSelectedMapRoute(route)}
+                              >
                                 <td>
                                   <strong>{route.route_name}</strong>
                                   <span className="sub-id">{route.route_id}</span>
@@ -1806,11 +1868,18 @@ function Dashboard({ user, onLogout }) {
                                 </td>
                                 <td className="td-score">{route.route_score} / 100</td>
                                 <td>
-                                  {isBest ? (
-                                    <span className="pill-status green">Best Choice</span>
-                                  ) : (
-                                    <span className="pill-status teal">Alternative</span>
-                                  )}
+                                  <div style={{ display: 'flex', gap: '0.35rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    {isBest ? (
+                                      <span className="pill-status green">Best Choice</span>
+                                    ) : (
+                                      <span className="pill-status teal">Alternative</span>
+                                    )}
+                                    {isSelectedRow && (
+                                      <span className="pill-status orange" style={{ fontSize: '0.75rem', padding: '0.2rem 0.5rem' }}>
+                                        📍 Single View Active
+                                      </span>
+                                    )}
+                                  </div>
                                 </td>
                               </tr>
                             )
@@ -1819,6 +1888,7 @@ function Dashboard({ user, onLogout }) {
                       </table>
                     </div>
                   </div>
+
 
                   {/* DOWNLOAD BUTTONS ROW AT THE BOTTOM OF ROUTE ANALYSIS REPORT */}
                   <div style={{
@@ -1854,6 +1924,7 @@ function Dashboard({ user, onLogout }) {
 
                 </div>
               )}
+
             </div>
           )}
 
@@ -2656,6 +2727,17 @@ function Dashboard({ user, onLogout }) {
                     <p className="why-body-desc">{selectedShipmentModal.full_result.best_route.selection_reason}</p>
                   </div>
                 </div>
+              )}
+
+              {selectedShipmentModal.full_result?.best_route && (
+                <RouteMap
+                  routes={selectedShipmentModal.full_result?.available_routes || [selectedShipmentModal.full_result?.best_route]}
+                  bestRouteId={selectedShipmentModal.full_result?.best_route?.route_id}
+                  activeRouteId={selectedShipmentModal.full_result?.best_route?.route_id}
+                  originName={selectedShipmentModal.origin}
+                  destinationName={selectedShipmentModal.destination}
+                  isCompact={true}
+                />
               )}
             </div>
 
