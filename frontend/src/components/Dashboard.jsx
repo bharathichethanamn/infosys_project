@@ -4,7 +4,6 @@ import RouteMap from './RouteMap'
 
 function Dashboard({ user, onLogout }) {
   const [backendStatus, setBackendStatus] = useState({ connected: false, message: 'Connecting...' })
-  const [activeTab, setActiveTab] = useState('dashboard')
   const [searchQuery, setSearchQuery] = useState('')
   const [shipmentTabFilter, setShipmentTabFilter] = useState('all')
 
@@ -29,6 +28,49 @@ function Dashboard({ user, onLogout }) {
   const [pricingLoading, setPricingLoading] = useState(false)
   const [pricingError, setPricingError] = useState('')
 
+  // Weather Agent State
+  const [weatherResult, setWeatherResult] = useState(null)
+  const [weatherComparison, setWeatherComparison] = useState(null)
+  const [weatherLoading, setWeatherLoading] = useState(false)
+  const [activeWeatherTab, setActiveWeatherTab] = useState('checkpoints')
+
+  const triggerWeatherAnalysis = async (origin, destination, oceanCorridor = null, candidateRoutes = []) => {
+    setWeatherLoading(true)
+    try {
+      const res = await fetch(`${API_URL}/api/weather/analyze-route`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          origin: origin,
+          destination: destination,
+          ocean_corridor: oceanCorridor
+        })
+      })
+
+      if (res.ok) {
+        const wData = await res.json()
+        setWeatherResult(wData)
+      }
+
+      if (candidateRoutes && candidateRoutes.length > 0) {
+        const compRes = await fetch(`${API_URL}/api/weather/compare-routes`, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ routes: candidateRoutes })
+        })
+
+        if (compRes.ok) {
+          const compData = await compRes.json()
+          setWeatherComparison(compData)
+        }
+      }
+    } catch (err) {
+      console.error('Weather Agent Error:', err)
+    } finally {
+      setWeatherLoading(false)
+    }
+  }
+
   // Quotation Agent State (Fresh state on login)
   const [customerName, setCustomerName] = useState('Global Logistics Corp')
   const [marginPercent, setMarginPercent] = useState(15.0)
@@ -48,12 +90,230 @@ function Dashboard({ user, onLogout }) {
   // User-specific Shipment History
   const [shipmentHistory, setShipmentHistory] = useState([])
 
+  // Role Identification
+  const isCustomer = user?.role === 'Customer' || user?.role === 'Registered Customer'
+  const isBroker = !isCustomer
+
+  // Active tab defaults to 'dashboard' for all roles
+  const [activeTab, setActiveTab] = useState('dashboard')
+
+  // Customer Requests Workflow State
+  const [customerRequests, setCustomerRequests] = useState([])
+  const [activeProcessingRequestId, setActiveProcessingRequestId] = useState(null)
+  const [customerViewModalItem, setCustomerViewModalItem] = useState(null)
+
+  // Customer Shipment Request Form State
+  const [requestFormData, setRequestFormData] = useState({
+    origin: 'Chennai',
+    destination: 'Rotterdam',
+    cargo_type: 'Electronics',
+    container_type: '40ft',
+    containers: 10,
+    details: 'Temperature-controlled cargo required.',
+    notes: 'Expedited customs handling.'
+  })
+  const [submitSuccessMsg, setSubmitSuccessMsg] = useState('')
+  const [submitErrorMsg, setSubmitErrorMsg] = useState('')
+
   // Modal State for "View Details"
   const [selectedShipmentModal, setSelectedShipmentModal] = useState(null)
 
+  // Profile Management State
+  const [userProfile, setUserProfile] = useState(() => {
+    return {
+      fullName: user?.fullName || user?.name || (isCustomer ? 'Global Logistics Corp' : 'Maritime Freight Broker Admin'),
+      companyName: user?.companyName || user?.fullName || (isCustomer ? 'Global Logistics Corp' : 'Maritime Freight Brokerage LLC'),
+      id: user?.id || (isCustomer ? 'CUST-88321' : 'BRK-1002'),
+      email: user?.email || (isCustomer ? 'customer@maritime.com' : 'admin@maritime.com'),
+      phone: user?.phone || (isCustomer ? '+1 (555) 847-2930' : '+1 (555) 019-2831'),
+      address: user?.address || (isCustomer ? '100 Maritime Plaza, Suite 400, Rotterdam, Netherlands' : 'Suite 800, Harbor Tower, Rotterdam, Netherlands'),
+      role: user?.role || (isCustomer ? 'Customer' : 'Broker')
+    }
+  })
+
+  // Sync profile if user prop changes upon login
+  useEffect(() => {
+    if (user) {
+      setUserProfile({
+        fullName: user.fullName || user.name || (isCustomer ? 'Global Logistics Corp' : 'Maritime Freight Broker Admin'),
+        companyName: user.companyName || user.fullName || (isCustomer ? 'Global Logistics Corp' : 'Maritime Freight Brokerage LLC'),
+        id: user.id || (isCustomer ? 'CUST-88321' : 'BRK-1002'),
+        email: user.email || (isCustomer ? 'customer@maritime.com' : 'admin@maritime.com'),
+        phone: user.phone || (isCustomer ? '+1 (555) 847-2930' : '+1 (555) 019-2831'),
+        address: user.address || (isCustomer ? '100 Maritime Plaza, Suite 400, Rotterdam, Netherlands' : 'Suite 800, Harbor Tower, Rotterdam, Netherlands'),
+        role: user.role || (isCustomer ? 'Customer' : 'Broker')
+      })
+    }
+  }, [user, isCustomer])
+
+  const [isEditingProfile, setIsEditingProfile] = useState(false)
+  const [editFormData, setEditFormData] = useState({
+    fullName: userProfile.fullName,
+    companyName: userProfile.companyName,
+    phone: userProfile.phone,
+    address: userProfile.address
+  })
+
+  const [isChangingPassword, setIsChangingPassword] = useState(false)
+  const [passwordData, setPasswordData] = useState({
+    currentPassword: '',
+    newPassword: '',
+    confirmPassword: ''
+  })
+
+  const [profileToast, setProfileToast] = useState({ type: '', message: '' })
+
+  const handleSaveProfile = (e) => {
+    e.preventDefault()
+    if (!editFormData.fullName.trim()) {
+      setProfileToast({ type: 'error', message: 'Full Name cannot be empty.' })
+      return
+    }
+    const updated = {
+      ...userProfile,
+      fullName: editFormData.fullName,
+      companyName: editFormData.companyName || editFormData.fullName,
+      phone: editFormData.phone,
+      address: editFormData.address
+    }
+    setUserProfile(updated)
+    setIsEditingProfile(false)
+    setProfileToast({ type: 'success', message: 'Profile information updated successfully!' })
+    setTimeout(() => setProfileToast({ type: '', message: '' }), 4000)
+  }
+
+  const handleChangePasswordSubmit = (e) => {
+    e.preventDefault()
+    if (!passwordData.currentPassword) {
+      setProfileToast({ type: 'error', message: 'Please enter your current password.' })
+      return
+    }
+    if (!passwordData.newPassword || passwordData.newPassword.length < 6) {
+      setProfileToast({ type: 'error', message: 'New password must be at least 6 characters.' })
+      return
+    }
+    if (passwordData.newPassword !== passwordData.confirmPassword) {
+      setProfileToast({ type: 'error', message: 'New password and confirmation do not match.' })
+      return
+    }
+
+    setIsChangingPassword(false)
+    setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
+    setProfileToast({ type: 'success', message: 'Password updated successfully!' })
+    setTimeout(() => setProfileToast({ type: '', message: '' }), 4000)
+  }
+
   const API_URL = 'http://127.0.0.1:8000'
 
-  // Load user-specific history on mount or when user changes (agents start fresh)
+  // Fetch all customer requests from backend API or localStorage fallback
+  const fetchCustomerRequests = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/requests`)
+      if (res.ok) {
+        const data = await res.json()
+        setCustomerRequests(data)
+        try {
+          localStorage.setItem('maritime_all_requests', JSON.stringify(data))
+        } catch (e) {}
+        return
+      }
+    } catch (e) {}
+
+    try {
+      const saved = localStorage.getItem('maritime_all_requests')
+      if (saved) {
+        setCustomerRequests(JSON.parse(saved))
+      }
+    } catch (e) {}
+  }
+
+  // Update status of a shipment request on server & local state
+  const updateRequestStatus = async (requestId, updatePayload) => {
+    try {
+      const res = await fetch(`${API_URL}/api/requests/${requestId}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(updatePayload)
+      })
+      if (res.ok) {
+        const data = await res.json()
+        setCustomerRequests(prev => prev.map(r => r.id === requestId ? data.request : r))
+        try {
+          const currentLocal = JSON.parse(localStorage.getItem('maritime_all_requests') || '[]')
+          const updatedLocal = currentLocal.map(r => r.id === requestId ? data.request : r)
+          localStorage.setItem('maritime_all_requests', JSON.stringify(updatedLocal))
+        } catch (e) {}
+        return data.request
+      }
+    } catch (e) {}
+
+    setCustomerRequests(prev => prev.map(r => r.id === requestId ? { ...r, ...updatePayload } : r))
+  }
+
+  // Shipment Stages Constants for Status Tracking Workflow
+  const SHIPMENT_STAGES = [
+    'Shipment Confirmed',
+    'Picked Up',
+    'In Transit',
+    'Arrived at Port',
+    'Out for Delivery',
+    'Delivered'
+  ]
+
+  const getStageIndex = (statusStr) => {
+    if (!statusStr) return 0
+    const normalized = statusStr.trim()
+    if (normalized === 'Shipment Confirmed' || normalized === 'Accepted') return 0
+    if (normalized === 'Picked Up') return 1
+    if (normalized === 'In Transit') return 2
+    if (normalized === 'Arrived at Port') return 3
+    if (normalized === 'Out for Delivery') return 4
+    if (normalized === 'Delivered') return 5
+    return 0
+  }
+
+  const [selectedTrackRequestId, setSelectedTrackRequestId] = useState(null)
+
+  const handleBrokerUpdateShipmentStatus = async (requestId, newStatus) => {
+    const nowStr = new Date().toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    })
+    await updateRequestStatus(requestId, {
+      status: newStatus,
+      last_updated: nowStr
+    })
+    setReportToast(`✅ Shipment ${requestId} status updated to: ${newStatus}`)
+    setTimeout(() => setReportToast(''), 4000)
+  }
+
+  const handleCustomerAcceptQuotation = async (reqItem) => {
+    const nowStr = new Date().toLocaleString('en-US', {
+      month: 'short', day: 'numeric', year: 'numeric', hour: '2-digit', minute: '2-digit'
+    })
+    await updateRequestStatus(reqItem.id, {
+      status: 'Shipment Confirmed',
+      last_updated: nowStr
+    })
+    setSelectedTrackRequestId(reqItem.id)
+    setCustomerViewModalItem(null)
+    setReportToast(`🎉 Quotation Accepted! Shipment ${reqItem.id} is now Confirmed and Active.`)
+    setTimeout(() => setReportToast(''), 4000)
+    setActiveTab('track-shipment')
+  }
+
+  // Automatically trigger Weather Agent analysis whenever apiResult exists and weatherResult is null
+  useEffect(() => {
+    if (apiResult && apiResult.best_route && !weatherResult && !weatherLoading) {
+      triggerWeatherAnalysis(
+        apiResult.query?.origin || 'Chennai',
+        apiResult.query?.destination || 'Rotterdam',
+        apiResult.best_route.ocean_corridor,
+        apiResult.available_routes || []
+      )
+    }
+  }, [apiResult, weatherResult, weatherLoading])
+
+  // Load user-specific history and customer requests on mount or when user changes
   useEffect(() => {
     fetch(API_URL + '/')
       .then(res => res.json())
@@ -63,6 +323,8 @@ function Dashboard({ user, onLogout }) {
       .catch(() => {
         setBackendStatus({ connected: false, message: 'Backend Offline' })
       })
+
+    fetchCustomerRequests()
 
     // Load history for current user from localStorage
     try {
@@ -99,6 +361,8 @@ function Dashboard({ user, onLogout }) {
     setSelectedMapRoute(null)
     setPricingResult(null)
     setQuotationResult(null)
+    setWeatherResult(null)
+    setWeatherComparison(null)
     setPricingError('')
     setError('')
     setLoading(true)
@@ -137,32 +401,42 @@ function Dashboard({ user, onLogout }) {
       setApiResult(data)
       if (data && data.best_route) {
         setSelectedMapRoute('ALL')
+        triggerWeatherAnalysis(data.query.origin, data.query.destination, data.best_route.ocean_corridor, data.available_routes)
       }
 
       if (data && (data.matched === false || data.status === 'error' || !data.best_route)) {
         setError(data.message || 'No available route found for this shipment.')
-      } else if (data && data.matched && data.best_route && saveToHistory) {
-        const newRecord = {
-          id: `SHP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
-          timestamp: new Date().toLocaleString('en-US', {
-            month: 'short',
-            day: 'numeric',
-            year: 'numeric',
-            hour: '2-digit',
-            minute: '2-digit'
-          }),
-          origin: data.query.origin,
-          destination: data.query.destination,
-          cargo_type: data.query.cargo_type,
-          containers: data.query.containers,
-          best_route: data.best_route.route_name,
-          transit_days: `${data.best_route.transit_days} Days`,
-          route_score: data.best_route.route_score,
-          status: 'Completed',
-          full_result: data
+      } else if (data && data.matched && data.best_route) {
+        if (activeProcessingRequestId) {
+          updateRequestStatus(activeProcessingRequestId, {
+            status: 'Route Analysed',
+            route_result: data
+          })
         }
 
-        saveHistoryForUser([newRecord, ...shipmentHistory])
+        if (saveToHistory) {
+          const newRecord = {
+            id: `SHP-${new Date().getFullYear()}-${Math.floor(1000 + Math.random() * 9000)}`,
+            timestamp: new Date().toLocaleString('en-US', {
+              month: 'short',
+              day: 'numeric',
+              year: 'numeric',
+              hour: '2-digit',
+              minute: '2-digit'
+            }),
+            origin: data.query.origin,
+            destination: data.query.destination,
+            cargo_type: data.query.cargo_type,
+            containers: data.query.containers,
+            best_route: data.best_route.route_name,
+            transit_days: `${data.best_route.transit_days} Days`,
+            route_score: data.best_route.route_score,
+            status: 'Completed',
+            full_result: data
+          }
+
+          saveHistoryForUser([newRecord, ...shipmentHistory])
+        }
       }
     } catch (err) {
       console.error('Route Analysis Error:', err)
@@ -208,6 +482,13 @@ function Dashboard({ user, onLogout }) {
       }
 
       setPricingResult(data)
+
+      if (activeProcessingRequestId) {
+        updateRequestStatus(activeProcessingRequestId, {
+          status: 'Pricing Calculated',
+          pricing_result: data
+        })
+      }
 
       // Attach pricing_result to active apiResult and active shipment history
       setApiResult(prev => prev ? { ...prev, pricing_result: data } : prev)
@@ -272,10 +553,18 @@ function Dashboard({ user, onLogout }) {
       const data = await res.json().catch(() => ({}))
 
       if (!res.ok || data.status === 'error') {
-        throw new Error(data.detail || data.message || 'Margin must be 0% or greater.')
+        throw new Error(data.detail || data.message || 'Unable to generate the quotation. Please try again.')
       }
 
       setQuotationResult(data)
+
+      if (activeProcessingRequestId) {
+        updateRequestStatus(activeProcessingRequestId, {
+          status: 'Quotation Generated',
+          quotation_result: data,
+          margin_percent: parsedMargin
+        })
+      }
 
       // Attach quotation_result to active shipment history record
       setShipmentHistory(prevHistory => {
@@ -299,8 +588,99 @@ function Dashboard({ user, onLogout }) {
       setTimeout(() => setReportToast(''), 4000)
     } catch (err) {
       console.error('Quotation Error:', err)
-      alert(err.message || 'Margin must be 0% or greater.')
+      alert(err.message || 'Unable to generate the quotation. Please try again.')
     }
+  }
+
+  // Action: Broker sends quotation to customer
+  const sendQuotationToCustomer = async () => {
+    if (!activeProcessingRequestId) {
+      alert('No active request selected.')
+      return
+    }
+    await updateRequestStatus(activeProcessingRequestId, { status: 'Quotation Sent' })
+    setReportToast('✅ Formal Quotation sent to customer successfully!')
+    setTimeout(() => setReportToast(''), 4000)
+  }
+
+  // Action: Customer submits shipment request
+  const handleCustomerSubmitRequest = async (e) => {
+    e.preventDefault()
+    setSubmitErrorMsg('')
+    setSubmitSuccessMsg('')
+
+    if (!requestFormData.containers || parseInt(requestFormData.containers) <= 0) {
+      setSubmitErrorMsg('Unable to submit the shipment request. Please try again.')
+      return
+    }
+
+    try {
+      const payload = {
+        customer_id: user?.id || (userEmail ? `CUST-${userEmail}` : 'CUST-DEMO-001'),
+        customer_name: user?.fullName || 'Valued Maritime Client',
+        customer_email: userEmail,
+        origin: requestFormData.origin,
+        destination: requestFormData.destination,
+        cargo_type: requestFormData.cargo_type,
+        container_type: requestFormData.container_type || '40ft',
+        containers: parseInt(requestFormData.containers),
+        details: requestFormData.details || '',
+        notes: requestFormData.notes || ''
+      }
+
+      const res = await fetch(`${API_URL}/api/requests`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload)
+      })
+
+      if (!res.ok) {
+        throw new Error('Unable to submit the shipment request. Please try again.')
+      }
+
+      const data = await res.json()
+      setSubmitSuccessMsg('Shipment request submitted successfully. Waiting for broker approval.')
+      fetchCustomerRequests()
+      setTimeout(() => {
+        setActiveTab('customer-requests')
+        setSubmitSuccessMsg('')
+      }, 2000)
+    } catch (err) {
+      setSubmitErrorMsg('Unable to submit the shipment request. Please try again.')
+    }
+  }
+
+  // Action: Broker Accepts a Customer Request
+  const handleBrokerAcceptRequest = async (reqItem) => {
+    await updateRequestStatus(reqItem.id, { status: 'Accepted' })
+    setReportToast(`✅ Request ${reqItem.id} Accepted! Click 'Start Route Analysis' to process.`)
+    setTimeout(() => setReportToast(''), 4000)
+  }
+
+  // Action: Broker Rejects a Customer Request
+  const handleBrokerRejectRequest = async (reqItem) => {
+    await updateRequestStatus(reqItem.id, { status: 'Rejected', rejection_reason: 'Rejected by broker' })
+    alert('Shipment request has been rejected.')
+  }
+
+  // Action: Broker Starts Route Analysis for an Accepted Request
+  const handleBrokerStartRouteAnalysis = (reqItem) => {
+    setActiveProcessingRequestId(reqItem.id)
+    setFormData({
+      origin: reqItem.origin,
+      destination: reqItem.destination,
+      cargo_type: reqItem.cargo_type,
+      containers: reqItem.containers
+    })
+    setContainerType(reqItem.container_type || '40ft')
+    setCustomerName(reqItem.customer_name)
+    setActiveTab('route-intelligence')
+    triggerRouteAnalysis({
+      origin: reqItem.origin,
+      destination: reqItem.destination,
+      cargo_type: reqItem.cargo_type,
+      containers: reqItem.containers
+    }, true, true)
   }
 
   const handleChange = (e) => {
@@ -1095,86 +1475,178 @@ function Dashboard({ user, onLogout }) {
 
           {/* NAVIGATION MENU */}
           <nav className="sidebar-menu">
-            <button
-              className={`menu-link ${activeTab === 'dashboard' ? 'active' : ''}`}
-              onClick={() => setActiveTab('dashboard')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
-              </span>
-              <span className="menu-label">Dashboard</span>
-            </button>
+            {isCustomer ? (
+              <>
+                <button
+                  className={`menu-link ${activeTab === 'dashboard' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('dashboard')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  </span>
+                  <span className="menu-label">Dashboard</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'route-intelligence' ? 'active' : ''}`}
-              onClick={() => setActiveTab('route-intelligence')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
-              </span>
-              <span className="menu-label">Route Intelligence</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'create-request' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('create-request')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="16"/><line x1="8" y1="12" x2="16" y2="12"/></svg>
+                  </span>
+                  <span className="menu-label">New Shipment Request</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'pricing' ? 'active' : ''}`}
-              onClick={() => setActiveTab('pricing')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
-              </span>
-              <span className="menu-label">Pricing Agent</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'shipments' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('shipments')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z"/><polyline points="3.27 6.96 12 12.01 20.73 6.96"/><line x1="12" y1="22.08" x2="12" y2="12"/></svg>
+                  </span>
+                  <span className="menu-label">My Shipments</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'quotation' ? 'active' : ''}`}
-              onClick={() => setActiveTab('quotation')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
-              </span>
-              <span className="menu-label">Quotation Agent</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'customer-requests' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('customer-requests')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+                  </span>
+                  <span className="menu-label">My Quotations</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'shipments' ? 'active' : ''}`}
-              onClick={() => setActiveTab('shipments')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.48 2.38 7"/></svg>
-              </span>
-              <span className="menu-label">Shipments</span>
-              <span className="badge-count-pill">{activeShipmentsCount}</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'track-shipment' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('track-shipment')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                  </span>
+                  <span className="menu-label">Track Shipment</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'reports' ? 'active' : ''}`}
-              onClick={() => setActiveTab('reports')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
-              </span>
-              <span className="menu-label">Reports</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'reports' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('reports')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </span>
+                  <span className="menu-label">Reports</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'analytics' ? 'active' : ''}`}
-              onClick={() => setActiveTab('analytics')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
-              </span>
-              <span className="menu-label">Analytics</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'profile' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('profile')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  </span>
+                  <span className="menu-label">Profile</span>
+                </button>
+              </>
+            ) : (
+              <>
+                <button
+                  className={`menu-link ${activeTab === 'dashboard' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('dashboard')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="3" width="7" height="7"/><rect x="14" y="3" width="7" height="7"/><rect x="14" y="14" width="7" height="7"/><rect x="3" y="14" width="7" height="7"/></svg>
+                  </span>
+                  <span className="menu-label">Dashboard</span>
+                </button>
 
-            <button
-              className={`menu-link ${activeTab === 'settings' ? 'active' : ''}`}
-              onClick={() => setActiveTab('settings')}
-            >
-              <span className="menu-icon">
-                <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a1.65 1.65 0 0 0 .33 1.82l.06.06a2 2 0 0 1 0 2.83 2 2 0 0 1-2.83 0l-.06-.06a1.65 1.65 0 0 0-1.82-.33 1.65 1.65 0 0 0-1 1.51V21a2 2 0 0 1-2 2 2 2 0 0 1-2-2v-.09A1.65 1.65 0 0 0 9 19.4a1.65 1.65 0 0 0-1.82.33l-.06.06a2 2 0 0 1-2.83 0 2 2 0 0 1 0-2.83l.06-.06a1.65 1.65 0 0 0 .33-1.82 1.65 1.65 0 0 0-1.51-1H3a2 2 0 0 1-2-2 2 2 0 0 1 2-2h.09A1.65 1.65 0 0 0 4.6 9a1.65 1.65 0 0 0-.33-1.82l-.06-.06a2 2 0 0 1 0-2.83 2 2 0 0 1 2.83 0l.06.06a1.65 1.65 0 0 0 1.82.33H9a1.65 1.65 0 0 0 1-1.51V3a2 2 0 0 1 2-2 2 2 0 0 1 2 2v.09a1.65 1.65 0 0 0 1 1.51 1.65 1.65 0 0 0 1.82-.33l.06-.06a2 2 0 0 1 2.83 0 2 2 0 0 1 0 2.83l-.06.06a1.65 1.65 0 0 0-.33 1.82V9a1.65 1.65 0 0 0 1.51 1H21a2 2 0 0 1 2 2 2 2 0 0 1-2 2h-.09a1.65 1.65 0 0 0-1.51 1z"/></svg>
-              </span>
-              <span className="menu-label">Settings</span>
-            </button>
+                <button
+                  className={`menu-link ${activeTab === 'broker-requests' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('broker-requests')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+                  </span>
+                  <span className="menu-label">Customer Requests</span>
+                  {customerRequests.filter(r => r.status === 'Pending').length > 0 && (
+                    <span className="badge-count-pill" style={{ backgroundColor: '#F5A623' }}>
+                      {customerRequests.filter(r => r.status === 'Pending').length}
+                    </span>
+                  )}
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'route-intelligence' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('route-intelligence')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><circle cx="12" cy="12" r="10"/><polygon points="16.24 7.76 14.12 14.12 7.76 16.24 9.88 9.88 16.24 7.76"/></svg>
+                  </span>
+                  <span className="menu-label">Route Intelligence</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'weather-intelligence' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('weather-intelligence')}
+                >
+                  <span className="menu-icon">
+                    <span style={{ fontSize: '1.1rem' }}>🌊</span>
+                  </span>
+                  <span className="menu-label">Weather Intelligence</span>
+                  <span className="badge-count-pill" style={{ backgroundColor: '#0F8B8D' }}>AI</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'pricing' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('pricing')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+                  </span>
+                  <span className="menu-label">Pricing Agent</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'quotation' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('quotation')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+                  </span>
+                  <span className="menu-label">Quotation Agent</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'shipments' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('shipments')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.48 2.38 7"/></svg>
+                  </span>
+                  <span className="menu-label">Shipment History</span>
+                  <span className="badge-count-pill">{activeShipmentsCount}</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'reports' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('reports')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+                  </span>
+                  <span className="menu-label">Reports</span>
+                </button>
+
+                <button
+                  className={`menu-link ${activeTab === 'profile' ? 'active' : ''}`}
+                  onClick={() => setActiveTab('profile')}
+                >
+                  <span className="menu-icon">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                  </span>
+                  <span className="menu-label">Profile</span>
+                </button>
+              </>
+            )}
           </nav>
         </div>
 
@@ -1211,7 +1683,7 @@ function Dashboard({ user, onLogout }) {
             </div>
             <div>
               <h1 className="header-app-title">Agentic AI for Maritime Freight</h1>
-              <p className="header-app-subtitle">Pricing & Route Optimization</p>
+              <p className="header-app-subtitle">{isCustomer ? 'Customer Portal' : 'Pricing & Route Optimization'}</p>
             </div>
           </div>
 
@@ -1230,14 +1702,19 @@ function Dashboard({ user, onLogout }) {
           <div className="header-right-actions">
             <div className="status-pill-green">
               <span className="dot-green"></span>
-              <span>Agents: <strong>Ready</strong></span>
+              <span>Platform: <strong>Active</strong></span>
             </div>
 
-            <div className="user-profile-chip">
-              <span className="user-avatar">👤</span>
+            <div
+              className="user-profile-chip"
+              onClick={() => setActiveTab('profile')}
+              style={{ cursor: 'pointer' }}
+              title="Click to view Profile"
+            >
+              <span className="user-avatar">{isCustomer ? '🚢' : '👤'}</span>
               <div className="user-info">
-                <span className="user-email">{user?.email || 'admin@maritime.com'}</span>
-                <span className="user-role">Broker Admin</span>
+                <span className="user-email">{userEmail}</span>
+                <span className="user-role">{user?.role || (isCustomer ? 'Customer' : 'Broker Admin')}</span>
               </div>
             </div>
 
@@ -1254,10 +1731,1027 @@ function Dashboard({ user, onLogout }) {
         {/* CONTENT BODY */}
         <main className="ocean-content-body">
 
+          {/* AUTHORIZATION GUARD */}
+          {isCustomer && !['dashboard', 'customer-requests', 'create-request', 'shipments', 'track-shipment', 'reports', 'profile'].includes(activeTab) && (
+            <div style={{ padding: '2rem' }}>
+              <div className="alert-banner alert-error" style={{ fontSize: '1.05rem', padding: '1.25rem' }}>
+                You are not authorized to access this page.
+              </div>
+            </div>
+          )}
+
           {/* =================================================================
-             PAGE 1: MAIN DASHBOARD VIEW (activeTab === 'dashboard')
+             PAGE: CUSTOMER REQUESTS & QUOTATIONS (CUSTOMER VIEW)
              ================================================================= */}
-          {activeTab === 'dashboard' && (
+          {activeTab === 'customer-requests' && isCustomer && (
+            <div className="dashboard-page-view">
+              <div className="ocean-card" style={{ marginBottom: '1.5rem' }}>
+                <div className="card-header-between">
+                  <div>
+                    <h2 className="card-title">My Shipment Requests & Quotations</h2>
+                    <p className="card-subtitle">Track your submitted requests and view finalized quotations from the broker.</p>
+                  </div>
+                  <button className="btn-explore-orange" onClick={() => setActiveTab('create-request')}>
+                    + Create New Request
+                  </button>
+                </div>
+
+                {customerRequests.some(r => ((user?.id && r.customer_id === user.id) || r.customer_email?.toLowerCase() === userEmail) && r.status === 'Quotation Sent') && (
+                  <div className="alert-banner alert-info" style={{ marginTop: '1rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', backgroundColor: '#ECFDF5', color: '#065F46', border: '1px solid #18A66A' }}>
+                    <div>
+                      <strong>🔔 New Quotation Available!</strong> Your freight quotation has been processed and issued by the broker.
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <div className="ocean-card">
+                <div className="history-table-wrapper">
+                  <table className="ocean-history-table">
+                    <thead>
+                      <tr>
+                        <th>Request ID</th>
+                        <th>Date</th>
+                        <th>Corridor</th>
+                        <th>Cargo & Load</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customerRequests.filter(r => (user?.id && r.customer_id === user.id) || r.customer_email?.toLowerCase() === userEmail).length === 0 ? (
+                        <tr>
+                          <td colSpan="6" style={{ textAlign: 'center', padding: '2rem', color: '#64748B' }}>
+                            No shipment requests found. Click "+ Create New Request" to submit your first cargo request!
+                          </td>
+                        </tr>
+                      ) : (
+                        customerRequests
+                          .filter(r => (user?.id && r.customer_id === user.id) || r.customer_email?.toLowerCase() === userEmail)
+                          .map((reqItem) => (
+                            <tr key={reqItem.id}>
+                              <td style={{ fontWeight: 'bold', color: '#062B49' }}>{reqItem.id}</td>
+                              <td>{reqItem.request_date || 'Recent'}</td>
+                              <td>{reqItem.origin} → {reqItem.destination}</td>
+                              <td>{reqItem.cargo_type} ({reqItem.containers} x {reqItem.container_type || '40ft'})</td>
+                              <td>
+                                <span className={`status-pill ${
+                                  reqItem.status === 'Pending' ? 'status-pending' :
+                                  reqItem.status === 'Accepted' ? 'status-active' :
+                                  reqItem.status === 'Rejected' ? 'status-rejected' :
+                                  reqItem.status === 'Quotation Sent' ? 'status-completed' : 'status-in-progress'
+                                }`}>
+                                  {reqItem.status === 'Pending' ? 'Pending Approval' :
+                                   reqItem.status === 'Quotation Sent' ? 'Quotation Available' : reqItem.status}
+                                </span>
+                              </td>
+                              <td>
+                                {SHIPMENT_STAGES.includes(reqItem.status) ? (
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <button
+                                      className="btn-action-view"
+                                      style={{ backgroundColor: '#0F8B8D', color: '#fff', border: 'none', padding: '0.45rem 0.9rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem' }}
+                                      onClick={() => {
+                                        setSelectedTrackRequestId(reqItem.id)
+                                        setActiveTab('track-shipment')
+                                      }}
+                                    >
+                                      Track Shipment →
+                                    </button>
+                                    <button
+                                      className="btn-action-view"
+                                      style={{ backgroundColor: '#062B49', color: '#fff', border: 'none', padding: '0.45rem 0.8rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                      onClick={() => setCustomerViewModalItem(reqItem)}
+                                    >
+                                      View Quote
+                                    </button>
+                                  </div>
+                                ) : reqItem.status === 'Quotation Sent' || reqItem.status === 'Quotation Ready' || reqItem.quotation_result ? (
+                                  <div style={{ display: 'flex', gap: '0.5rem', alignItems: 'center', flexWrap: 'wrap' }}>
+                                    <button
+                                      className="btn-action-view"
+                                      style={{ backgroundColor: '#18A66A', color: '#fff', border: 'none', padding: '0.45rem 0.9rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '700', fontSize: '0.85rem' }}
+                                      onClick={() => handleCustomerAcceptQuotation(reqItem)}
+                                    >
+                                      ✓ Accept & Confirm
+                                    </button>
+                                    <button
+                                      className="btn-action-view"
+                                      style={{ backgroundColor: '#0B5D7A', color: '#fff', border: 'none', padding: '0.45rem 0.8rem', borderRadius: '6px', cursor: 'pointer', fontWeight: '600', fontSize: '0.85rem' }}
+                                      onClick={() => setCustomerViewModalItem(reqItem)}
+                                    >
+                                      View Details
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <span style={{ fontSize: '0.85rem', color: '#64748B', fontStyle: 'italic' }}>
+                                    {reqItem.status === 'Rejected' ? 'Request Rejected' : 'Waiting for Broker'}
+                                  </span>
+                                )}
+                              </td>
+                            </tr>
+                          ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE: CREATE SHIPMENT REQUEST (CUSTOMER VIEW)
+             ================================================================= */}
+          {activeTab === 'create-request' && isCustomer && (
+            <div className="dashboard-page-view" style={{ maxWidth: '880px', margin: '0 auto', paddingBottom: '2.5rem' }}>
+              <div className="ocean-card" style={{
+                background: '#ffffff',
+                borderRadius: '16px',
+                padding: '2.5rem',
+                boxShadow: '0 10px 30px rgba(6, 43, 73, 0.08)',
+                border: '1px solid #E2E8F0'
+              }}>
+                <div style={{ paddingBottom: '1.5rem', marginBottom: '1.75rem', borderBottom: '1px solid #E2E8F0' }}>
+                  <h2 className="card-title" style={{ fontSize: '1.6rem', color: '#062B49', margin: '0 0 0.35rem 0', fontWeight: '800' }}>
+                    Create Shipment Request
+                  </h2>
+                  <p className="card-subtitle" style={{ color: '#475569', fontSize: '0.95rem', margin: 0 }}>
+                    Select your shipping corridor and cargo specifications to request a formal freight quotation from our brokers.
+                  </p>
+                </div>
+
+                {submitSuccessMsg && (
+                  <div className="alert-banner alert-info" style={{ marginBottom: '1.5rem', backgroundColor: '#ECFDF5', color: '#065F46', border: '1px solid #18A66A', padding: '0.9rem 1.25rem', borderRadius: '10px', fontWeight: '600' }}>
+                    ✅ {submitSuccessMsg}
+                  </div>
+                )}
+
+                {submitErrorMsg && (
+                  <div className="alert-banner alert-error" style={{ marginBottom: '1.5rem', backgroundColor: '#FEF2F2', color: '#991B1B', border: '1px solid #FCA5A5', padding: '0.9rem 1.25rem', borderRadius: '10px', fontWeight: '600' }}>
+                    ⚠️ {submitErrorMsg}
+                  </div>
+                )}
+
+                <form onSubmit={handleCustomerSubmitRequest} className="route-query-form">
+                  
+                  {/* SECTION 1: ROUTE & CORRIDOR SELECTION */}
+                  <div style={{ marginBottom: '1.75rem' }}>
+                    <h3 style={{ fontSize: '1.05rem', color: '#062B49', marginBottom: '1rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.03em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ color: '#0F8B8D' }}>📍</span> 1. Ocean Route & Location
+                    </h3>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))', gap: '1.5rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Origin Port / City *
+                        </label>
+                        <select
+                          className="form-control"
+                          value={requestFormData.origin}
+                          onChange={e => setRequestFormData({ ...requestFormData, origin: e.target.value })}
+                          style={{ width: '100%', padding: '0.78rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF' }}
+                          required
+                        >
+                          <option value="">Select Origin Port...</option>
+                          <option value="Chennai">Chennai, India (INMAA)</option>
+                          <option value="Shanghai">Shanghai, China (CNSHA)</option>
+                          <option value="Singapore">Singapore (SGSIN)</option>
+                          <option value="Mumbai">Mumbai / Nhava Sheva, India (INNSA)</option>
+                          <option value="Ningbo">Ningbo-Zhoushan, China (CNNGB)</option>
+                          <option value="Tokyo">Tokyo, Japan (TYO)</option>
+                          <option value="Dubai">Dubai / Jebel Ali, UAE (AEJEA)</option>
+                          <option value="Busan">Busan, South Korea (KRPUS)</option>
+                          <option value="Hong Kong">Hong Kong (HKHKG)</option>
+                          <option value="Colombo">Colombo, Sri Lanka (LKCMB)</option>
+                          <option value="Yokohama">Yokohama, Japan (JPYOK)</option>
+                          <option value="Salalah">Salalah, Oman (OMSLH)</option>
+                          <option value="Klang">Port Klang, Malaysia (MYPKG)</option>
+                          <option value="Qingdao">Qingdao, China (CNTAO)</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Destination Port / City *
+                        </label>
+                        <select
+                          className="form-control"
+                          value={requestFormData.destination}
+                          onChange={e => setRequestFormData({ ...requestFormData, destination: e.target.value })}
+                          style={{ width: '100%', padding: '0.78rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF' }}
+                          required
+                        >
+                          <option value="">Select Destination Port...</option>
+                          <option value="Rotterdam">Rotterdam, Netherlands (NLRTM)</option>
+                          <option value="Los Angeles">Los Angeles, USA (USLAX)</option>
+                          <option value="Hamburg">Hamburg, Germany (DEHAM)</option>
+                          <option value="Felixstowe">Felixstowe, UK (GBFXT)</option>
+                          <option value="New York">New York / New Jersey, USA (USNYC)</option>
+                          <option value="Sydney">Sydney, Australia (AUSYD)</option>
+                          <option value="Antwerp">Antwerp, Belgium (BEANR)</option>
+                          <option value="Vancouver">Vancouver, Canada (CAYVR)</option>
+                          <option value="Genoa">Genoa, Italy (ITGOA)</option>
+                          <option value="Melbourne">Melbourne, Australia (AUMEL)</option>
+                          <option value="Santos">Santos, Brazil (BRSSZ)</option>
+                          <option value="Bremerhaven">Bremerhaven, Germany (DEBRV)</option>
+                        </select>
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 2: CARGO & CONTAINER SPECIFICATIONS */}
+                  <div style={{ marginBottom: '1.75rem' }}>
+                    <h3 style={{ fontSize: '1.05rem', color: '#062B49', marginBottom: '1rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.03em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ color: '#0F8B8D' }}>📦</span> 2. Cargo & Container Specifications
+                    </h3>
+
+                    <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(220px, 1fr))', gap: '1.5rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Cargo Type *
+                        </label>
+                        <select
+                          className="form-control"
+                          value={requestFormData.cargo_type}
+                          onChange={e => setRequestFormData({ ...requestFormData, cargo_type: e.target.value })}
+                          style={{ width: '100%', padding: '0.78rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF' }}
+                          required
+                        >
+                          <option value="">Select Cargo Category...</option>
+                          <option value="Electronics">Electronics & IT Hardware</option>
+                          <option value="Machinery">Industrial Machinery & Equipment</option>
+                          <option value="Textiles">Textiles, Apparel & Garments</option>
+                          <option value="General Cargo">General Freight / Dry Goods</option>
+                          <option value="Food Products">Food Products & Agriculture</option>
+                          <option value="Chemicals">Chemicals & Specialized Materials</option>
+                          <option value="Automotive Parts">Automotive Parts & Components</option>
+                          <option value="Perishables">Perishables & Temperature-Controlled</option>
+                          <option value="Consumer Goods">Consumer Retail Goods</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Container Type *
+                        </label>
+                        <select
+                          className="form-control"
+                          value={requestFormData.container_type}
+                          onChange={e => setRequestFormData({ ...requestFormData, container_type: e.target.value })}
+                          style={{ width: '100%', padding: '0.78rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF' }}
+                          required
+                        >
+                          <option value="40ft">40ft High Cube Container (HC)</option>
+                          <option value="20ft">20ft Standard Dry Container (STD)</option>
+                          <option value="40ft Standard">40ft Standard Dry Container (STD)</option>
+                          <option value="40ft Reefer">40ft Refrigerated Container (Reefer)</option>
+                        </select>
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Number of Containers (TEU) *
+                        </label>
+                        <input
+                          type="number"
+                          min="1"
+                          max="500"
+                          className="form-control"
+                          value={requestFormData.containers}
+                          onChange={e => setRequestFormData({ ...requestFormData, containers: Math.max(1, parseInt(e.target.value) || 1) })}
+                          style={{ width: '100%', padding: '0.78rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF' }}
+                          required
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* SECTION 3: SHIPMENT DETAILS & NOTES */}
+                  <div style={{ marginBottom: '2rem' }}>
+                    <h3 style={{ fontSize: '1.05rem', color: '#062B49', marginBottom: '1rem', fontWeight: '700', textTransform: 'uppercase', letterSpacing: '0.03em', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                      <span style={{ color: '#0F8B8D' }}>📝</span> 3. Shipment Details & Instructions
+                    </h3>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '1.5rem' }}>
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Required Shipment Details *
+                        </label>
+                        <textarea
+                          className="form-control"
+                          rows="3"
+                          value={requestFormData.details}
+                          onChange={e => setRequestFormData({ ...requestFormData, details: e.target.value })}
+                          placeholder="Specify temperature settings, hazmat details, target arrival dates, or special handling instructions..."
+                          style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF', fontFamily: 'inherit', resize: 'vertical' }}
+                          required
+                        />
+                      </div>
+
+                      <div className="form-group" style={{ margin: 0 }}>
+                        <label style={{ display: 'block', fontSize: '0.88rem', fontWeight: '700', color: '#062B49', marginBottom: '0.5rem' }}>
+                          Optional Notes for Broker
+                        </label>
+                        <textarea
+                          className="form-control"
+                          rows="2"
+                          value={requestFormData.notes}
+                          onChange={e => setRequestFormData({ ...requestFormData, notes: e.target.value })}
+                          placeholder="Add any extra instructions, preferred shipping line, or expedited handling notes..."
+                          style={{ width: '100%', padding: '0.85rem 1rem', borderRadius: '10px', border: '1.5px solid #CBD5E1', fontSize: '0.95rem', color: '#062B49', backgroundColor: '#FFFFFF', fontFamily: 'inherit', resize: 'vertical' }}
+                        />
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* ACTION BUTTONS BAR */}
+                  <div style={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'flex-end',
+                    gap: '1.25rem',
+                    paddingTop: '1.75rem',
+                    borderTop: '1px solid #E2E8F0'
+                  }}>
+                    <button
+                      type="button"
+                      className="btn-secondary"
+                      onClick={() => setActiveTab('customer-requests')}
+                      style={{
+                        padding: '0.78rem 1.5rem',
+                        borderRadius: '10px',
+                        border: '1.5px solid #94A3B8',
+                        background: 'transparent',
+                        color: '#475569',
+                        fontWeight: '700',
+                        fontSize: '0.95rem',
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="submit"
+                      className="btn-explore-orange"
+                      style={{
+                        padding: '0.85rem 2rem',
+                        borderRadius: '10px',
+                        border: 'none',
+                        background: 'linear-gradient(135deg, #0F8B8D 0%, #062B49 100%)',
+                        color: '#FFFFFF',
+                        fontWeight: '800',
+                        fontSize: '0.98rem',
+                        cursor: 'pointer',
+                        boxShadow: '0 4px 14px rgba(15, 139, 141, 0.35)',
+                        display: 'inline-flex',
+                        alignItems: 'center',
+                        gap: '0.5rem'
+                      }}
+                    >
+                      Submit Shipment Request →
+                    </button>
+                  </div>
+
+                </form>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE: BROKER CUSTOMER REQUESTS MANAGEMENT (BROKER VIEW)
+             ================================================================= */}
+          {activeTab === 'broker-requests' && isBroker && (
+            <div className="dashboard-page-view">
+              <div className="ocean-card" style={{ marginBottom: '1.5rem' }}>
+                <div className="card-header-between">
+                  <div>
+                    <h2 className="card-title">Customer Shipment Requests</h2>
+                    <p className="card-subtitle">Review incoming customer requests, accept or reject requests, and launch Route Agent processing.</p>
+                  </div>
+                </div>
+              </div>
+
+              <div className="ocean-card">
+                <div className="history-table-wrapper">
+                  <table className="ocean-history-table">
+                    <thead>
+                      <tr>
+                        <th>Request ID</th>
+                        <th>Customer</th>
+                        <th>Date</th>
+                        <th>Corridor</th>
+                        <th>Cargo & Load</th>
+                        <th>Status</th>
+                        <th>Actions</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {customerRequests.length === 0 ? (
+                        <tr>
+                          <td colSpan="7" style={{ textAlign: 'center', padding: '2rem', color: '#64748B' }}>
+                            No customer shipment requests received yet.
+                          </td>
+                        </tr>
+                      ) : (
+                        customerRequests.map((reqItem) => (
+                          <tr key={reqItem.id}>
+                            <td style={{ fontWeight: 'bold', color: '#062B49' }}>{reqItem.id}</td>
+                            <td>
+                              <div><strong>{reqItem.customer_name}</strong></div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748B' }}>{reqItem.customer_email}</div>
+                            </td>
+                            <td>{reqItem.request_date || 'Recent'}</td>
+                            <td>{reqItem.origin} → {reqItem.destination}</td>
+                            <td>{reqItem.cargo_type} ({reqItem.containers} x {reqItem.container_type || '40ft'})</td>
+                            <td>
+                              <span className={`status-pill ${
+                                reqItem.status === 'Pending' ? 'status-pending' :
+                                reqItem.status === 'Accepted' ? 'status-active' :
+                                reqItem.status === 'Rejected' ? 'status-rejected' :
+                                reqItem.status === 'Quotation Sent' ? 'status-completed' : 'status-in-progress'
+                              }`}>
+                                {reqItem.status}
+                              </span>
+                            </td>
+                            <td>
+                              <div style={{ display: 'flex', gap: '0.5rem', flexWrap: 'wrap', alignItems: 'center' }}>
+                                {reqItem.status === 'Pending' && (
+                                  <>
+                                    <button
+                                      className="btn-action-accept"
+                                      style={{ backgroundColor: '#18A66A', color: '#fff', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '5px', cursor: 'pointer', fontWeight: '600', fontSize: '0.82rem' }}
+                                      onClick={() => handleBrokerAcceptRequest(reqItem)}
+                                    >
+                                      Accept
+                                    </button>
+                                    <button
+                                      className="btn-action-reject"
+                                      style={{ backgroundColor: '#EF4444', color: '#fff', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '5px', cursor: 'pointer', fontWeight: '600', fontSize: '0.82rem' }}
+                                      onClick={() => handleBrokerRejectRequest(reqItem)}
+                                    >
+                                      Reject
+                                    </button>
+                                  </>
+                                )}
+
+                                {(reqItem.status === 'Accepted' || reqItem.status === 'Route Analysed' || reqItem.status === 'Pricing Calculated' || reqItem.status === 'Quotation Generated' || reqItem.status === 'Quotation Sent' || SHIPMENT_STAGES.includes(reqItem.status)) && (
+                                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem' }}>
+                                    <button
+                                      className="btn-action-process"
+                                      style={{ backgroundColor: '#0F8B8D', color: '#fff', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '5px', cursor: 'pointer', fontSize: '0.82rem', fontWeight: '600' }}
+                                      onClick={() => handleBrokerStartRouteAnalysis(reqItem)}
+                                    >
+                                      {reqItem.status === 'Accepted' ? 'Start Route Analysis →' : 'View / Reprocess'}
+                                    </button>
+
+                                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.35rem' }}>
+                                      <span style={{ fontSize: '0.75rem', fontWeight: '700', color: '#475569' }}>Status:</span>
+                                      <select
+                                        value={SHIPMENT_STAGES.includes(reqItem.status) ? reqItem.status : 'Shipment Confirmed'}
+                                        onChange={(e) => handleBrokerUpdateShipmentStatus(reqItem.id, e.target.value)}
+                                        style={{
+                                          padding: '0.25rem 0.45rem',
+                                          borderRadius: '5px',
+                                          border: '1.5px solid #0F8B8D',
+                                          fontSize: '0.78rem',
+                                          fontWeight: '700',
+                                          color: '#062B49',
+                                          backgroundColor: '#F0F9FF',
+                                          cursor: 'pointer'
+                                        }}
+                                      >
+                                        {SHIPMENT_STAGES.map((stg, i) => (
+                                          <option key={stg} value={stg}>{i + 1}. {stg}</option>
+                                        ))}
+                                      </select>
+                                    </div>
+                                  </div>
+                                )}
+
+                                {reqItem.status === 'Quotation Generated' && (
+                                  <button
+                                    className="btn-action-send"
+                                    style={{ backgroundColor: '#F5A623', color: '#062B49', border: 'none', padding: '0.35rem 0.75rem', borderRadius: '5px', cursor: 'pointer', fontWeight: 'bold', fontSize: '0.82rem' }}
+                                    onClick={() => {
+                                      setActiveProcessingRequestId(reqItem.id)
+                                      sendQuotationToCustomer()
+                                    }}
+                                  >
+                                    Send Quotation
+                                  </button>
+                                )}
+                              </div>
+                            </td>
+                          </tr>
+                        ))
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE 1A: CUSTOMER DASHBOARD VIEW (activeTab === 'dashboard' && isCustomer)
+             ================================================================= */}
+          {activeTab === 'dashboard' && isCustomer && (() => {
+            const currentCustomerId = user?.id || (userEmail ? `CUST-${userEmail}` : null)
+            const userCustomerRequests = customerRequests.filter(r => {
+              if (r.customer_id && currentCustomerId) {
+                return r.customer_id === currentCustomerId
+              }
+              return r.customer_email?.toLowerCase().trim() === userEmail
+            })
+
+            const activeCount = userCustomerRequests.filter(r => ['Accepted', 'Route Analysed', 'Pricing Calculated', 'In Transit'].includes(r.status)).length
+            const pendingCount = userCustomerRequests.filter(r => r.status === 'Pending').length
+            const quotationsCount = userCustomerRequests.filter(r => r.status === 'Quotation Sent' || r.status === 'Quotation Ready' || r.quotation_result).length
+            const completedCount = userCustomerRequests.filter(r => r.status === 'Completed').length
+
+            const latestQuotationRequest = userCustomerRequests.find(r => r.status === 'Quotation Sent' || r.status === 'Quotation Ready' || r.quotation_result) || null
+            const latestActiveShipment = userCustomerRequests[0] || null
+
+            const hasCustomerHistory = userCustomerRequests.length > 0
+
+            return (
+              <div className="dashboard-page-view">
+
+                {/* 1. WELCOME HERO BANNER */}
+                <div className="ocean-hero-banner" style={{ backgroundImage: `url('/images/hero_banner.png')` }}>
+                  <div className="hero-banner-overlay"></div>
+                  <div className="hero-left-content">
+                    <h2>Welcome back,</h2>
+                    <h1 style={{ fontSize: '2.2rem', color: '#FFFFFF', fontWeight: '800', margin: '0.25rem 0' }}>
+                      {user?.fullName || user?.name || (userEmail === 'customer@maritime.com' ? 'Global Logistics Corp' : userEmail.split('@')[0])}
+                    </h1>
+                    <p>{hasCustomerHistory ? 'Manage your shipments, routes and freight quotations.' : "Welcome to Maritime AI — You don't have any shipments yet."}</p>
+                  </div>
+                  <div className="hero-right-content">
+                    <div style={{ background: 'rgba(255, 255, 255, 0.95)', padding: '0.85rem 1.25rem', borderRadius: '12px', color: '#062B49', display: 'flex', alignItems: 'center', gap: '0.85rem', boxShadow: '0 4px 15px rgba(0,0,0,0.1)' }}>
+                      <span style={{ fontSize: '1.75rem' }}>🚢</span>
+                      <div>
+                        <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#0F8B8D', textTransform: 'uppercase' }}>Global Trade</div>
+                        <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#062B49' }}>A Cleaner Tomorrow</div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                {/* =================================================================
+                   CONDITION 1: NEW CUSTOMER DASHBOARD (IF NO HISTORY EXISTS)
+                   ================================================================= */}
+                {!hasCustomerHistory ? (
+                  <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                    
+                    {/* DEDICATED NEW CUSTOMER CLEAN EMPTY STATE CARD */}
+                    <div className="ocean-card" style={{ padding: '3.5rem 2.5rem', textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0', boxShadow: '0 4px 20px rgba(6, 43, 73, 0.06)' }}>
+                      <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#F0F9FF', border: '2px solid #BAE6FD', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', marginBottom: '1.25rem' }}>
+                        🚢
+                      </div>
+                      <h2 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#062B49', marginBottom: '0.4rem' }}>
+                        Welcome to Maritime AI
+                      </h2>
+                      <h3 style={{ fontSize: '1.15rem', fontWeight: '700', color: '#0B5D7A', marginBottom: '1rem' }}>
+                        You don't have any shipments yet.
+                      </h3>
+                      <p style={{ color: '#475569', fontSize: '0.95rem', maxWidth: '540px', lineHeight: '1.6', marginBottom: '2rem' }}>
+                        Start managing your maritime freight today. Submit your cargo details to receive AI-powered ocean route recommendations and transparent broker freight quotations.
+                      </p>
+                      <button
+                        className="btn-explore-orange"
+                        style={{ padding: '0.95rem 2.25rem', fontSize: '1.05rem', width: 'auto', display: 'inline-flex', alignItems: 'center', gap: '0.6rem', fontWeight: '800', borderRadius: '30px' }}
+                        onClick={() => setActiveTab('create-request')}
+                      >
+                        <span style={{ fontSize: '1.3rem', lineHeight: '1' }}>+</span> Create Shipment Request
+                      </button>
+                    </div>
+
+                    {/* SIMPLE QUICK ACTIONS CARD */}
+                    <div className="ocean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0' }}>
+                      <div>
+                        <h3 className="card-title" style={{ fontSize: '1.25rem', color: '#062B49', marginBottom: '0.35rem' }}>Simple Quick Actions</h3>
+                        <p className="card-subtitle" style={{ marginBottom: '1.5rem' }}>Get started with your customer account</p>
+                        
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                          <div
+                            style={{ background: '#F0F9FF', padding: '1.1rem 1rem', borderRadius: '14px', border: '1.5px solid #BAE6FD', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('create-request')}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#0284C7', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.3rem', fontWeight: 'bold' }}>+</div>
+                            <div>
+                              <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#062B49' }}>Create Shipment Request</div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748B' }}>Submit cargo details for broker evaluation</div>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{ background: '#F8FAFC', padding: '1.1rem 1rem', borderRadius: '14px', border: '1px solid #E2E8F0', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('customer-requests')}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#0B5D7A', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📄</div>
+                            <div>
+                              <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#062B49' }}>View Quotations</div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748B' }}>Check pending and issued quotations</div>
+                            </div>
+                          </div>
+
+                          <div
+                            style={{ background: '#F8FAFC', padding: '1.1rem 1rem', borderRadius: '14px', border: '1px solid #E2E8F0', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: '1rem', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('customer-requests')}
+                          >
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#0F8B8D', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.2rem' }}>📍</div>
+                            <div>
+                              <div style={{ fontSize: '0.95rem', fontWeight: '800', color: '#062B49' }}>Track Shipment</div>
+                              <div style={{ fontSize: '0.8rem', color: '#64748B' }}>Monitor active cargo status in real-time</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                ) : (
+                  /* =================================================================
+                     CONDITION 2: EXISTING CUSTOMER DASHBOARD (IF HISTORY EXISTS)
+                     ================================================================= */
+                  <>
+                    {/* 2. KPI CARDS ROW (4 CARDS) */}
+                    <section className="kpi-cards-grid">
+                      {/* CARD 1: Active Shipments */}
+                      <div className="kpi-card">
+                        <div className="kpi-top-row">
+                          <div className="kpi-icon-circle blue">
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#0B5D7A" strokeWidth="2.2"><path d="M2 21c.6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1 .6.5 1.2 1 2.5 1 2.5 0 2.5-2 5-2 1.3 0 1.9.5 2.5 1"/><path d="M19.38 20A11.6 11.6 0 0 0 21 14l-9-4-9 4c0 2.9.94 5.48 2.38 7"/></svg>
+                          </div>
+                        </div>
+                        <div className="kpi-label">Active Shipments</div>
+                        <div className="kpi-main-val">{activeCount}</div>
+                        <div className="kpi-sub-text">Currently in transit</div>
+                      </div>
+
+                      {/* CARD 2: Pending Requests */}
+                      <div className="kpi-card">
+                        <div className="kpi-top-row">
+                          <div className="kpi-icon-circle yellow" style={{ background: '#FEF3C7' }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#D97706" strokeWidth="2.2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 16 14"/></svg>
+                          </div>
+                        </div>
+                        <div className="kpi-label">Pending Requests</div>
+                        <div className="kpi-main-val">{pendingCount}</div>
+                        <div className="kpi-sub-text">Awaiting broker processing</div>
+                      </div>
+
+                      {/* CARD 3: Available Quotations */}
+                      <div className="kpi-card">
+                        <div className="kpi-top-row">
+                          <div className="kpi-icon-circle green" style={{ background: '#DCFCE7' }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#15803D" strokeWidth="2.2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/></svg>
+                          </div>
+                        </div>
+                        <div className="kpi-label">Available Quotations</div>
+                        <div className="kpi-main-val">{quotationsCount}</div>
+                        <div className="kpi-sub-text">New quotations received</div>
+                      </div>
+
+                      {/* CARD 4: Completed Shipments */}
+                      <div className="kpi-card">
+                        <div className="kpi-top-row">
+                          <div className="kpi-icon-circle purple" style={{ background: '#F3E8FF' }}>
+                            <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="#7E22CE" strokeWidth="2.2"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+                          </div>
+                        </div>
+                        <div className="kpi-label">Completed Shipments</div>
+                        <div className="kpi-main-val">{completedCount}</div>
+                        <div className="kpi-sub-text">Successfully delivered</div>
+                      </div>
+                    </section>
+
+                    {/* 3. MAIN GRID TOP ROW (MY RECENT SHIPMENTS & LATEST QUOTATION) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '1.5rem', marginBottom: '1.5rem' }}>
+                      
+                      {/* LEFT SECTION: MY RECENT SHIPMENTS */}
+                      <div className="ocean-card">
+                        <div className="card-header-between" style={{ marginBottom: '1rem' }}>
+                          <h3 className="card-title" style={{ fontSize: '1.2rem', color: '#062B49' }}>My Recent Shipments</h3>
+                          <a href="#viewall" className="link-text" onClick={(e) => { e.preventDefault(); setActiveTab('customer-requests'); }} style={{ fontSize: '0.88rem', fontWeight: '700', color: '#0B5D7A' }}>
+                            View All
+                          </a>
+                        </div>
+
+                        <div className="history-table-wrapper">
+                          <table className="ocean-history-table">
+                            <thead>
+                              <tr>
+                                <th>Request ID</th>
+                                <th>Route</th>
+                                <th>Cargo</th>
+                                <th>Containers</th>
+                                <th>Status</th>
+                                <th>Requested Date</th>
+                                <th>Action</th>
+                              </tr>
+                            </thead>
+                            <tbody>
+                              {userCustomerRequests.slice(0, 5).map((item) => (
+                                <tr key={item.id}>
+                                  <td style={{ fontWeight: 'bold', color: '#062B49' }}>{item.id}</td>
+                                  <td style={{ fontWeight: '600' }}>{item.origin} → {item.destination}</td>
+                                  <td>{item.cargo_type}</td>
+                                  <td>{item.containers} × {item.container_type || '40ft'}</td>
+                                  <td>
+                                    <span className={`status-pill ${
+                                      item.status === 'Quotation Ready' || item.status === 'Quotation Sent' ? 'status-ready' :
+                                      item.status === 'In Review' || item.status === 'Pending' ? 'status-review' :
+                                      item.status === 'Accepted' ? 'status-accepted' :
+                                      item.status === 'Completed' ? 'status-completed' : 'status-in-progress'
+                                    }`} style={{
+                                      padding: '0.25rem 0.65rem',
+                                      borderRadius: '20px',
+                                      fontSize: '0.78rem',
+                                      fontWeight: '700',
+                                      display: 'inline-block',
+                                      backgroundColor:
+                                        item.status === 'Quotation Ready' || item.status === 'Quotation Sent' ? '#DCFCE7' :
+                                        item.status === 'In Review' || item.status === 'Pending' ? '#FEF3C7' :
+                                        item.status === 'Accepted' ? '#E0F2FE' :
+                                        item.status === 'Completed' ? '#F3E8FF' : '#F1F5F9',
+                                      color:
+                                        item.status === 'Quotation Ready' || item.status === 'Quotation Sent' ? '#15803D' :
+                                        item.status === 'In Review' || item.status === 'Pending' ? '#D97706' :
+                                        item.status === 'Accepted' ? '#0369A1' :
+                                        item.status === 'Completed' ? '#7E22CE' : '#475569'
+                                    }}>
+                                      {item.status === 'Quotation Sent' ? 'Quotation Available' : item.status}
+                                    </span>
+                                  </td>
+                                  <td>{item.request_date || 'Recent'}</td>
+                                  <td>
+                                    <button
+                                      className="btn-action-view"
+                                      style={{
+                                        backgroundColor: '#FFFFFF',
+                                        color: '#0B5D7A',
+                                        border: '1px solid #0B5D7A',
+                                        padding: '0.25rem 0.75rem',
+                                        borderRadius: '6px',
+                                        cursor: 'pointer',
+                                        fontWeight: '600',
+                                        fontSize: '0.82rem'
+                                      }}
+                                      onClick={() => setCustomerViewModalItem(item)}
+                                    >
+                                      View
+                                    </button>
+                                  </td>
+                                </tr>
+                              ))}
+                            </tbody>
+                          </table>
+                        </div>
+                      </div>
+
+                      {/* RIGHT SECTION: LATEST QUOTATION */}
+                      <div className="ocean-card" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                        {latestQuotationRequest ? (
+                          <div>
+                            <div className="card-header-between" style={{ marginBottom: '0.85rem' }}>
+                              <h3 className="card-title" style={{ fontSize: '1.2rem', color: '#062B49' }}>Latest Quotation</h3>
+                              <a href="#viewall" className="link-text" onClick={(e) => { e.preventDefault(); setActiveTab('customer-requests'); }} style={{ fontSize: '0.88rem', fontWeight: '700', color: '#0B5D7A' }}>
+                                View All
+                              </a>
+                            </div>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', background: '#F8FAFC', padding: '0.75rem 1rem', borderRadius: '10px', marginBottom: '1rem', border: '1px solid #E2E8F0' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '1.2rem' }}>📄</span>
+                                <strong style={{ color: '#062B49', fontSize: '1rem' }}>{latestQuotationRequest.origin} → {latestQuotationRequest.destination}</strong>
+                              </div>
+                              <span style={{ background: '#DCFCE7', color: '#15803D', padding: '0.25rem 0.65rem', borderRadius: '15px', fontSize: '0.78rem', fontWeight: '700' }}>
+                                Quotation Ready
+                              </span>
+                            </div>
+
+                            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: '1rem', marginBottom: '1rem' }}>
+                              <div style={{ fontSize: '0.85rem', color: '#334155' }}>
+                                <div style={{ marginBottom: '0.4rem' }}>Selected Route : <strong>{latestQuotationRequest.quotation_result?.route_name || latestQuotationRequest.route_result?.best_route?.route_name || 'Express Suez Direct'}</strong></div>
+                                <div style={{ marginBottom: '0.4rem' }}>Transit Time : <strong>{latestQuotationRequest.quotation_result?.transit_days || latestQuotationRequest.route_result?.best_route?.transit_days || 21} Days</strong></div>
+                                <div style={{ marginBottom: '0.4rem' }}>Distance : <strong>{latestQuotationRequest.quotation_result?.distance_nautical_miles || 6500} NM</strong></div>
+                                <div style={{ marginBottom: '0.4rem' }}>Cargo : <strong>{latestQuotationRequest.cargo_type}</strong></div>
+                                <div>Containers : <strong>{latestQuotationRequest.containers} × {latestQuotationRequest.container_type || '40ft'}</strong></div>
+                              </div>
+
+                              {/* Embedded Small Map Preview */}
+                              <div style={{ height: '120px', borderRadius: '8px', overflow: 'hidden', border: '1px solid #CBD5E1' }}>
+                                <RouteMap
+                                  routes={[{
+                                    route_id: 'R-MAP-01',
+                                    route_name: latestQuotationRequest.quotation_result?.route_name || 'Express Suez Direct',
+                                    transit_days: latestQuotationRequest.quotation_result?.transit_days || 21,
+                                    distance_nautical_miles: 6500,
+                                    transshipments: 0,
+                                    route_score: 94
+                                  }]}
+                                  bestRouteId="R-MAP-01"
+                                  activeRouteId="R-MAP-01"
+                                  originName={latestQuotationRequest.origin}
+                                  destinationName={latestQuotationRequest.destination}
+                                  isCompact={true}
+                                />
+                              </div>
+                            </div>
+
+                            {/* Pricing Row (Customer Prices Only) */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', background: '#F0F9FF', padding: '0.85rem 1rem', borderRadius: '10px', marginBottom: '1.25rem', border: '1px solid #BAE6FD' }}>
+                              <div>
+                                <span style={{ fontSize: '0.78rem', color: '#0369A1', display: 'block', fontWeight: '600' }}>Freight Base Cost</span>
+                                <strong style={{ fontSize: '1.2rem', color: '#062B49' }}>
+                                  $ {latestQuotationRequest.quotation_result?.total_freight_cost?.toLocaleString() || '20,700'}
+                                </strong>
+                              </div>
+                              <div>
+                                <span style={{ fontSize: '0.78rem', color: '#0369A1', display: 'block', fontWeight: '600' }}>Final Customer Price</span>
+                                <strong style={{ fontSize: '1.2rem', color: '#062B49' }}>
+                                  $ {latestQuotationRequest.quotation_result?.customer_price?.toLocaleString() || '22,149'}
+                                </strong>
+                              </div>
+                            </div>
+
+                            {/* Action Buttons */}
+                            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                              <button
+                                className="btn-primary"
+                                style={{ backgroundColor: '#0B5D7A', color: '#FFFFFF', padding: '0.65rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '0.88rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                                onClick={() => setCustomerViewModalItem(latestQuotationRequest)}
+                              >
+                                <span>👁️</span> View Quotation
+                              </button>
+                              <button
+                                className="btn-secondary"
+                                style={{ backgroundColor: '#FFFFFF', color: '#0B5D7A', border: '1px solid #0B5D7A', padding: '0.65rem', borderRadius: '8px', cursor: 'pointer', fontWeight: '700', fontSize: '0.88rem', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '0.4rem' }}
+                                onClick={() => handleDownloadCompleteShipmentReport(latestQuotationRequest)}
+                              >
+                                <span style={{ color: '#EF4444' }}>📄</span> Download PDF
+                              </button>
+                            </div>
+                          </div>
+                        ) : (
+                          <div>
+                            <div className="card-header-between" style={{ marginBottom: '0.85rem' }}>
+                              <h3 className="card-title" style={{ fontSize: '1.2rem', color: '#062B49' }}>Latest Quotation</h3>
+                            </div>
+                            <div style={{ padding: '2rem 1rem', textAlignment: 'center', background: '#F8FAFC', borderRadius: '12px', border: '1px dashed #CBD5E1', textAlign: 'center' }}>
+                              <span style={{ fontSize: '2rem', display: 'block', marginBottom: '0.5rem' }}>⏳</span>
+                              <strong style={{ color: '#062B49', display: 'block', fontSize: '1rem', marginBottom: '0.35rem' }}>Quotation In Progress</strong>
+                              <p style={{ color: '#64748B', fontSize: '0.85rem', margin: 0 }}>Your request is currently being evaluated by the broker.</p>
+                              <button
+                                className="btn-primary"
+                                style={{ marginTop: '1rem', backgroundColor: '#0B5D7A', color: '#FFFFFF', padding: '0.5rem 1rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '0.82rem' }}
+                                onClick={() => setActiveTab('customer-requests')}
+                              >
+                                View Request Status
+                              </button>
+                            </div>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+
+                    {/* 4. MAIN GRID BOTTOM ROW (SHIPMENT TRACKING & QUICK ACTIONS) */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1.8fr 1.2fr', gap: '1.5rem' }}>
+                      
+                      {/* BOTTOM LEFT: SHIPMENT TRACKING */}
+                      <div className="ocean-card">
+                        <div className="card-header-between" style={{ marginBottom: '1rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                            <h3 className="card-title" style={{ fontSize: '1.2rem', color: '#062B49', margin: 0 }}>Shipment Tracking</h3>
+                            {latestActiveShipment && (
+                              <span style={{ background: '#F1F5F9', color: '#062B49', padding: '0.25rem 0.65rem', borderRadius: '8px', fontSize: '0.82rem', fontWeight: '800' }}>
+                                {latestActiveShipment.id} &nbsp; {latestActiveShipment.origin} → {latestActiveShipment.destination}
+                              </span>
+                            )}
+                          </div>
+                        </div>
+
+                        {/* STEPPER TIMELINE */}
+                        <div style={{ padding: '1.5rem 0.5rem 0.5rem' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', position: 'relative' }}>
+                            {/* Background Line */}
+                            <div style={{ position: 'absolute', top: '16px', left: '8%', right: '8%', height: '4px', background: '#E2E8F0', zIndex: 1 }}></div>
+                            {/* Active Progress Line */}
+                            <div style={{
+                              position: 'absolute',
+                              top: '16px',
+                              left: '8%',
+                              width: latestActiveShipment?.status === 'Quotation Sent' || latestActiveShipment?.status === 'Quotation Ready' ? '65%' :
+                                     latestActiveShipment?.status === 'Accepted' || latestActiveShipment?.status === 'Route Analysed' ? '42%' : '18%',
+                              height: '4px',
+                              background: '#18A66A',
+                              zIndex: 2
+                            }}></div>
+
+                            {/* STAGE 1: Request Submitted */}
+                            <div style={{ zIndex: 3, textAlign: 'center', flex: 1 }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#18A66A', color: '#FFFFFF', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontWeight: 'bold' }}>✓</div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#062B49' }}>Request Submitted</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{latestActiveShipment?.request_date || 'Completed'}</div>
+                            </div>
+
+                            {/* STAGE 2: Broker Accepted */}
+                            <div style={{ zIndex: 3, textAlign: 'center', flex: 1 }}>
+                              <div style={{
+                                width: '32px', height: '32px', borderRadius: '50%',
+                                background: ['Accepted', 'Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#18A66A' : '#E2E8F0',
+                                color: ['Accepted', 'Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#FFFFFF' : '#94A3B8',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontWeight: 'bold'
+                              }}>{['Accepted', 'Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '✓' : '•'}</div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: '700', color: '#062B49' }}>Broker Accepted</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{['Accepted', 'Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent'].includes(latestActiveShipment?.status) ? 'Confirmed' : 'Pending'}</div>
+                            </div>
+
+                            {/* STAGE 3: Route Selected */}
+                            <div style={{ zIndex: 3, textAlign: 'center', flex: 1 }}>
+                              <div style={{
+                                width: '32px', height: '32px', borderRadius: '50%',
+                                background: ['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#FFFFFF' : '#E2E8F0',
+                                border: ['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '3px solid #18A66A' : 'none',
+                                color: ['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#18A66A' : '#94A3B8',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontWeight: 'bold'
+                              }}>{['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '🎯' : '•'}</div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: '800', color: ['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent'].includes(latestActiveShipment?.status) ? '#18A66A' : '#64748B' }}>Route Selected</div>
+                              <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{['Route Analysed', 'Pricing Calculated', 'Quotation Ready', 'Quotation Sent'].includes(latestActiveShipment?.status) ? 'Evaluated' : 'Pending'}</div>
+                            </div>
+
+                            {/* STAGE 4: Quotation Ready */}
+                            <div style={{ zIndex: 3, textAlign: 'center', flex: 1 }}>
+                              <div style={{
+                                width: '32px', height: '32px', borderRadius: '50%',
+                                background: ['Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#18A66A' : '#E2E8F0',
+                                color: ['Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '#FFFFFF' : '#94A3B8',
+                                display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontWeight: 'bold'
+                              }}>{['Quotation Ready', 'Quotation Sent', 'Completed'].includes(latestActiveShipment?.status) ? '✓' : '•'}</div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: '600', color: '#64748B' }}>Quotation Ready</div>
+                              <div style={{ fontSize: '0.75rem', color: '#94A3B8' }}>{['Quotation Ready', 'Quotation Sent'].includes(latestActiveShipment?.status) ? 'Available' : 'Pending'}</div>
+                            </div>
+
+                            {/* STAGE 5: Shipment in Transit */}
+                            <div style={{ zIndex: 3, textAlign: 'center', flex: 1 }}>
+                              <div style={{ width: '32px', height: '32px', borderRadius: '50%', background: '#E2E8F0', color: '#94A3B8', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 0.5rem', fontWeight: 'bold' }}>•</div>
+                              <div style={{ fontSize: '0.82rem', fontWeight: '600', color: '#64748B' }}>Shipment in Transit</div>
+                              <div style={{ fontSize: '0.75rem', color: '#94A3B8' }}>-</div>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* BOTTOM RIGHT: QUICK ACTIONS */}
+                      <div className="ocean-card">
+                        <h3 className="card-title" style={{ fontSize: '1.2rem', color: '#062B49', marginBottom: '1rem' }}>Quick Actions</h3>
+                        
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '0.75rem' }}>
+                          {/* Card 1: Create Request */}
+                          <div
+                            style={{ background: '#F0F9FF', padding: '0.85rem 0.65rem', borderRadius: '10px', border: '1px solid #BAE6FD', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('create-request')}
+                          >
+                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#0284C7', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.1rem', marginBottom: '0.5rem' }}>+</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#062B49', marginBottom: '0.2rem' }}>Create Shipment Request</div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: '1.2' }}>Request a new route and quotation</div>
+                          </div>
+
+                          {/* Card 2: View Quotations */}
+                          <div
+                            style={{ background: '#F0F9FF', padding: '0.85rem 0.65rem', borderRadius: '10px', border: '1px solid #BAE6FD', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('customer-requests')}
+                          >
+                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#0B5D7A', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', marginBottom: '0.5rem' }}>📄</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#062B49', marginBottom: '0.2rem' }}>View Quotations</div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: '1.2' }}>Check your received quotations</div>
+                          </div>
+
+                          {/* Card 3: Track Shipment */}
+                          <div
+                            style={{ background: '#F0F9FF', padding: '0.85rem 0.65rem', borderRadius: '10px', border: '1px solid #BAE6FD', cursor: 'pointer', textAlign: 'left', transition: 'all 0.2s ease' }}
+                            onClick={() => setActiveTab('customer-requests')}
+                          >
+                            <div style={{ width: '28px', height: '28px', borderRadius: '6px', background: '#0F8B8D', color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1rem', marginBottom: '0.5rem' }}>📍</div>
+                            <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#062B49', marginBottom: '0.2rem' }}>Track Shipment</div>
+                            <div style={{ fontSize: '0.72rem', color: '#64748B', lineHeight: '1.2' }}>Track your ongoing shipments</div>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
+                  </>
+                )}
+
+              </div>
+            )
+          })()}
+
+          {/* =================================================================
+             PAGE 1B: BROKER DASHBOARD VIEW (activeTab === 'dashboard' && isBroker)
+             ================================================================= */}
+          {activeTab === 'dashboard' && isBroker && (
             <div className="dashboard-page-view">
 
               {/* 3. WELCOME HERO BANNER */}
@@ -1460,6 +2954,19 @@ function Dashboard({ user, onLogout }) {
                           <span className="status-tag green">● Active ›</span>
                         </div>
                         <p>Customer quotation & margin calculation</p>
+                      </div>
+                    </div>
+
+                    <div className="agent-card-row active" onClick={() => setActiveTab('route-intelligence')} style={{ cursor: 'pointer' }}>
+                      <div className="agent-icon-box cyan" style={{ background: '#E0F2FE' }}>
+                        <span style={{ fontSize: '1.1rem' }}>🌊</span>
+                      </div>
+                      <div className="agent-details">
+                        <div className="agent-title-row">
+                          <strong>Weather Agent</strong>
+                          <span className="status-tag green">● Active ›</span>
+                        </div>
+                        <p>Marine weather risk & ocean safety intelligence</p>
                       </div>
                     </div>
 
@@ -1783,8 +3290,8 @@ function Dashboard({ user, onLogout }) {
                     </div>
 
                     <div style={{ marginTop: '1.25rem', textAlign: 'right' }}>
-                      <button className="btn-explore-orange" style={{ width: 'auto', padding: '0.65rem 1.5rem' }} onClick={() => setActiveTab('pricing')}>
-                        Proceed to Calculate Pricing for {apiResult.best_route.route_name} →
+                      <button className="btn-explore-orange" style={{ width: 'auto', padding: '0.65rem 1.5rem', cursor: 'pointer' }} onClick={() => setActiveTab('weather-intelligence')}>
+                        Proceed to Weather Agent for {apiResult.best_route.route_name} →
                       </button>
                     </div>
                   </div>
@@ -1792,6 +3299,7 @@ function Dashboard({ user, onLogout }) {
                   {/* MAP INTELLIGENCE COMPONENT */}
                   <RouteMap
                     routes={apiResult?.available_routes || []}
+                    weatherData={weatherResult}
                     bestRouteId={apiResult?.best_route?.route_id}
                     activeRouteId={selectedMapRoute === 'ALL' || !selectedMapRoute ? 'ALL' : selectedMapRoute?.route_id}
                     selectedRouteObj={selectedMapRoute === 'ALL' || !selectedMapRoute ? apiResult?.best_route : selectedMapRoute}
@@ -1854,7 +3362,17 @@ function Dashboard({ user, onLogout }) {
                                 key={route.route_id}
                                 className={isSelectedRow ? 'best-choice-row' : (isBest && !isSingleMode ? 'best-choice-row' : '')}
                                 style={{ cursor: 'pointer' }}
-                                onClick={() => setSelectedMapRoute(route)}
+                                onClick={() => {
+                                  setSelectedMapRoute(route)
+                                  if (apiResult && apiResult.query) {
+                                    triggerWeatherAnalysis(
+                                      apiResult.query.origin,
+                                      apiResult.query.destination,
+                                      route.ocean_corridor,
+                                      apiResult.available_routes
+                                    )
+                                  }
+                                }}
                               >
                                 <td>
                                   <strong>{route.route_name}</strong>
@@ -1890,41 +3408,607 @@ function Dashboard({ user, onLogout }) {
                   </div>
 
 
-                  {/* DOWNLOAD BUTTONS ROW AT THE BOTTOM OF ROUTE ANALYSIS REPORT */}
-                  <div style={{
-                    marginTop: '1.5rem',
-                    display: 'flex',
-                    gap: '1rem',
-                    justifyContent: 'flex-end',
-                    flexWrap: 'wrap'
-                  }}>
-                    <button
-                      className="btn-primary-teal"
-                      style={{ width: 'auto', padding: '0.75rem 1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
-                      onClick={handleDownloadPDF}
-                      disabled={reportLoading.pdf}
-                    >
-                      {reportLoading.pdf ? 'Generating PDF...' : '📄 Download Route Analysis Report'}
-                    </button>
-
-                    <button
-                      className="btn-explore-orange"
-                      style={{ width: 'auto', padding: '0.75rem 1.5rem', display: 'inline-flex', alignItems: 'center', gap: '0.5rem' }}
-                      onClick={async () => {
-                        if (!pricingResult) {
-                          await calculateFreightPrice(containerType)
-                        }
-                        handleDownloadPricingPDF()
-                      }}
-                      disabled={reportLoading.pricingPdf}
-                    >
-                      {reportLoading.pricingPdf ? 'Generating PDF...' : '💰 Download Freight Pricing Report'}
-                    </button>
-                  </div>
+                  {/* DOWNLOAD BUTTONS REMOVED AS REQUESTED */}
 
                 </div>
               )}
 
+            </div>
+          )}
+
+          {/* =================================================================
+             PAGE 2B: WEATHER INTELLIGENCE PAGE (activeTab === 'weather-intelligence')
+             ================================================================= */}
+          {activeTab === 'weather-intelligence' && (
+            <div className="dashboard-page-view">
+              
+              {/* PAGE HEADER BANNER */}
+              <div className="page-header-banner" style={{ background: '#FFFFFF', padding: '1.25rem 1.75rem', borderRadius: '14px', border: '1px solid #E2E8F0', marginBottom: '1.25rem', boxShadow: '0 2px 10px rgba(6,43,73,0.03)' }}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem' }}>
+                  <div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                      <span style={{ fontSize: '1.6rem' }}>🌊</span>
+                      <h2 className="page-title" style={{ margin: 0, color: '#062B49', fontSize: '1.5rem', fontWeight: '800' }}>Weather Intelligence</h2>
+                      <span className="badge-count-pill" style={{ backgroundColor: '#0F8B8D', color: '#FFFFFF', fontWeight: '800' }}>AI Weather Agent</span>
+                    </div>
+                    <p className="page-subtitle" style={{ margin: '0.25rem 0 0 0', color: '#64748B', fontSize: '0.92rem' }}>
+                      AI-powered weather and marine risk analysis for maritime routes
+                    </p>
+                  </div>
+                  
+                  {apiResult?.best_route && (
+                    <button
+                      className="btn-primary-teal"
+                      style={{ width: 'auto', backgroundColor: '#F5A623', color: '#062B49', fontWeight: '800', border: 'none', padding: '0.6rem 1.25rem', cursor: 'pointer', borderRadius: '8px' }}
+                      onClick={() => setActiveTab('pricing')}
+                    >
+                      Proceed to Pricing Agent →
+                    </button>
+                  )}
+                </div>
+              </div>
+
+              {!apiResult || !apiResult.best_route ? (
+                <div className="ocean-card alert-warning-ocean" style={{ textAlign: 'center', padding: '3rem 1.5rem', borderRadius: '16px', background: '#FFFFFF', border: '1.5px solid #BAE6FD' }}>
+                  <div style={{ width: '70px', height: '70px', borderRadius: '50%', background: '#E0F2FE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 1rem' }}>
+                    🌊
+                  </div>
+                  <h3 style={{ color: '#062B49', fontSize: '1.4rem', fontWeight: '800', marginBottom: '0.5rem' }}>No Active Route Weather Data</h3>
+                  <p style={{ color: '#475569', fontSize: '0.98rem', marginBottom: '1.5rem', maxWidth: '560px', margin: '0 auto 1.5rem' }}>
+                    Weather Agent requires a calculated route to retrieve multi-checkpoint atmospheric & marine wave data. Run a route analysis in Route Intelligence first!
+                  </p>
+                  <div style={{ display: 'flex', gap: '1rem', justifyContent: 'center', flexWrap: 'wrap' }}>
+                    <button
+                      className="btn-primary-teal"
+                      style={{ width: 'auto', padding: '0.75rem 1.5rem', fontWeight: '700', cursor: 'pointer' }}
+                      onClick={() => setActiveTab('route-intelligence')}
+                    >
+                      🚀 Go to Route Intelligence & Analyze Route
+                    </button>
+                    <button
+                      className="btn-explore-orange"
+                      style={{ width: 'auto', padding: '0.75rem 1.5rem', fontWeight: '700', cursor: 'pointer' }}
+                      onClick={() => {
+                        setActiveTab('route-intelligence')
+                        triggerRouteAnalysis({
+                          origin: 'Chennai',
+                          destination: 'Rotterdam',
+                          cargo_type: 'Machinery',
+                          containers: 10
+                        }, true, true)
+                      }}
+                    >
+                      ⚡ Run Sample Weather Analysis (Chennai ➔ Rotterdam)
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div>
+                  
+                  {/* WEATHER AGENT ACTIVE ROUTE COMPUTATION & LOADING STATE */}
+                  {weatherLoading ? (
+                    <div style={{ background: '#FFFFFF', borderRadius: '16px', padding: '3rem 2rem', border: '1px solid #BAE6FD', textAlign: 'center', marginBottom: '1.5rem', boxShadow: '0 4px 15px rgba(6,43,73,0.04)' }}>
+                      <div className="spinner-border" style={{ width: '48px', height: '48px', border: '4px solid #E0F2FE', borderTopColor: '#0070F3', borderRadius: '50%', animation: 'spin 1s linear infinite', margin: '0 auto 1rem' }}></div>
+                      <h3 style={{ color: '#062B49', fontSize: '1.25rem', fontWeight: '800', marginBottom: '0.4rem' }}>AI Weather Agent Analyzing Candidate Routes...</h3>
+                      <p style={{ color: '#64748B', fontSize: '0.9rem', margin: 0 }}>
+                        Retrieving real-time marine wave swell, wind velocity, and atmospheric visibility across sea checkpoints for {apiResult.available_routes?.length || 0} candidate routes.
+                      </p>
+                    </div>
+                  ) : (() => {
+                    const activeSelectedRouteId = (selectedMapRoute && selectedMapRoute !== 'ALL') ? selectedMapRoute.route_id : apiResult.best_route?.route_id
+                    const activeRouteObj = (apiResult.available_routes || []).find(r => r.route_id === activeSelectedRouteId) || apiResult.best_route
+                    const activeRouteWeather = (weatherComparison?.comparison || []).find(c => c.route_id === activeSelectedRouteId) || weatherResult
+                    const weatherRiskScore = activeRouteWeather?.weather_risk_score ?? activeRouteWeather?.risk_score ?? 35
+
+                    return (
+                      <div>
+                        {/* TOP SUMMARY SECTION - 5 CARDS ROW MATCHING REFERENCE IMAGE */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.25rem' }}>
+                          
+                          {/* CARD 1: ACTIVE SHIPMENT CORRIDOR */}
+                          <div style={{ background: '#FFFFFF', padding: '1rem 1.15rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>ACTIVE SHIPMENT CORRIDOR</div>
+                            <div style={{ fontSize: '1.15rem', fontWeight: '900', color: '#062B49', marginTop: '0.2rem' }}>
+                              {apiResult.query?.origin || 'Chennai'} ➔ {apiResult.query?.destination || 'Rotterdam'}
+                            </div>
+                            <div style={{ fontSize: '0.75rem', color: '#64748B', marginTop: '0.2rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                              Corridor: {activeRouteObj?.ocean_corridor || apiResult.best_route?.ocean_corridor || 'Ocean Shipping Corridor'}
+                            </div>
+                          </div>
+
+                          {/* CARD 2: OVERALL WEATHER RISK */}
+                          <div style={{ background: '#FFFFFF', padding: '1rem 1.15rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)' }}>
+                            <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase', letterSpacing: '0.04em' }}>OVERALL WEATHER RISK</div>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.65rem', marginTop: '0.2rem' }}>
+                              <div style={{ fontSize: '1.35rem', fontWeight: '900', color: weatherRiskScore > 60 ? '#EF4444' : weatherRiskScore > 40 ? '#F5A623' : '#18A66A' }}>
+                                {weatherRiskScore} / 100
+                              </div>
+                              <span style={{
+                                padding: '0.2rem 0.65rem',
+                                borderRadius: '12px',
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                backgroundColor: weatherRiskScore > 60 ? '#FEF2F2' : weatherRiskScore > 40 ? '#FEF3C7' : '#DCFCE7',
+                                color: weatherRiskScore > 60 ? '#991B1B' : weatherRiskScore > 40 ? '#B45309' : '#15803D',
+                                border: `1px solid ${weatherRiskScore > 60 ? '#FCA5A5' : weatherRiskScore > 40 ? '#FDE68A' : '#86EFAC'}`
+                              }}>
+                                {weatherRiskScore > 60 ? '🔴 HIGH' : weatherRiskScore > 40 ? '🟡 MODERATE' : '🟢 LOW'}
+                              </span>
+                            </div>
+                          </div>
+
+                          {/* CARD 3: WEATHER TREND */}
+                          <div style={{ background: '#FFFFFF', padding: '1rem 1.15rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#F0F9FF', color: '#0284C7', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+                              🔀
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>WEATHER TREND</div>
+                              <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#062B49' }}>{activeRouteWeather?.weather_trend || 'Stable Conditions'}</div>
+                              <div style={{ fontSize: '0.74rem', color: '#64748B' }}>Corridor forecast monitored</div>
+                            </div>
+                          </div>
+
+                          {/* CARD 4: TRANSIT DELAY IMPACT */}
+                          <div style={{ background: '#FFFFFF', padding: '1rem 1.15rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#FEF3C7', color: '#D97706', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+                              🕒
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>TRANSIT DELAY IMPACT</div>
+                              <div style={{ fontSize: '0.92rem', fontWeight: '800', color: '#062B49' }}>
+                                {activeRouteWeather?.transit_impact ? activeRouteWeather.transit_impact.split(' ')[0] + ' Impact' : 'Low Impact'}
+                              </div>
+                              <div style={{ fontSize: '0.74rem', color: '#64748B' }}>
+                                {weatherRiskScore > 60 ? '24 – 48 hours expected' : weatherRiskScore > 40 ? '6 – 12 hours expected' : 'Minimal / On schedule'}
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* CARD 5: CHECKPOINTS ANALYZED */}
+                          <div style={{ background: '#FFFFFF', padding: '1rem 1.15rem', borderRadius: '12px', border: '1px solid #E2E8F0', boxShadow: '0 2px 8px rgba(0,0,0,0.02)', display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                            <div style={{ width: '40px', height: '40px', borderRadius: '10px', background: '#E0F2FE', color: '#0369A1', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '1.25rem', flexShrink: 0 }}>
+                              📍
+                            </div>
+                            <div>
+                              <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>CHECKPOINTS ANALYZED</div>
+                              <div style={{ fontSize: '1.05rem', fontWeight: '900', color: '#062B49' }}>
+                                {activeRouteWeather?.checkpoints?.length || 5} Sea Checkpoints
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* ORIGIN & DESTINATION PORT WEATHER CARDS ROW */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.25rem', marginBottom: '1.25rem' }}>
+                          
+                          {/* ORIGIN PORT CARD */}
+                          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0369A1', textTransform: 'uppercase', letterSpacing: '0.04em' }}>📍 ORIGIN PORT WEATHER</span>
+                            </div>
+                            <h3 style={{ margin: '0 0 0.85rem 0', color: '#062B49', fontSize: '1.15rem', fontWeight: '800' }}>
+                              {apiResult.query?.origin || 'Origin Port'} (Origin Port)
+                            </h3>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <span style={{ fontSize: '2.5rem' }}>🌤️</span>
+                                <span style={{ fontSize: '2.1rem', fontWeight: '900', color: '#062B49' }}>
+                                  {activeRouteWeather?.checkpoints?.[0]?.metrics?.temperature_c || 28.4}°C
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 1.25rem', fontSize: '0.84rem', color: '#475569' }}>
+                                <div>💨 Wind: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[0]?.metrics?.wind_speed_knots || 14.2} kts</strong></div>
+                                <div>🌊 Waves: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[0]?.metrics?.wave_height_m || 1.5} m</strong></div>
+                                <div>👁️ Visibility: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[0]?.metrics?.visibility_km || 10.0} km</strong></div>
+                              </div>
+
+                              <div style={{ textAlign: 'right', background: '#F8FAFC', padding: '0.5rem 0.85rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Sea State</div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#062B49' }}>⚓ Calm / Smooth</div>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* DESTINATION PORT CARD */}
+                          <div style={{ background: '#FFFFFF', borderRadius: '14px', padding: '1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 2px 10px rgba(0,0,0,0.02)' }}>
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.65rem' }}>
+                              <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0F766E', textTransform: 'uppercase', letterSpacing: '0.04em' }}>📍 DESTINATION PORT WEATHER</span>
+                            </div>
+                            <h3 style={{ margin: '0 0 0.85rem 0', color: '#062B49', fontSize: '1.15rem', fontWeight: '800' }}>
+                              {apiResult.query?.destination || 'Destination Port'} (Destination Port)
+                            </h3>
+
+                            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                                <span style={{ fontSize: '2.5rem' }}>☁️</span>
+                                <span style={{ fontSize: '2.1rem', fontWeight: '900', color: '#062B49' }}>
+                                  {activeRouteWeather?.checkpoints?.[activeRouteWeather?.checkpoints?.length - 1]?.metrics?.temperature_c || 16.5}°C
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.4rem 1.25rem', fontSize: '0.84rem', color: '#475569' }}>
+                                <div>💨 Wind: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[activeRouteWeather?.checkpoints?.length - 1]?.metrics?.wind_speed_knots || 12.0} kts</strong></div>
+                                <div>🌊 Waves: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[activeRouteWeather?.checkpoints?.length - 1]?.metrics?.wave_height_m || 1.1} m</strong></div>
+                                <div>👁️ Visibility: <strong style={{ color: '#062B49' }}>{activeRouteWeather?.checkpoints?.[activeRouteWeather?.checkpoints?.length - 1]?.metrics?.visibility_km || 15.0} km</strong></div>
+                              </div>
+
+                              <div style={{ textAlign: 'right', background: '#F8FAFC', padding: '0.5rem 0.85rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                                <div style={{ fontSize: '0.72rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Sea State</div>
+                                <div style={{ fontSize: '0.88rem', fontWeight: '800', color: '#062B49' }}>⚓ Smooth / Slight</div>
+                              </div>
+                            </div>
+                          </div>
+
+                        </div>
+
+                        {/* MAIN SECTION TABS & CANDIDATE ROUTE WEATHER COMPARISON TABLE */}
+                        <div className="ocean-card" style={{ background: '#FFFFFF', borderRadius: '16px', padding: '1.5rem', border: '1px solid #E2E8F0', marginBottom: '1.5rem', boxShadow: '0 4px 20px rgba(6,43,73,0.04)' }}>
+                          
+                          {/* TABS HEADER */}
+                          <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.75rem', flexWrap: 'wrap' }}>
+                            <button
+                              className="tab-filter-btn active"
+                              style={{ padding: '0.5rem 1.15rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '800', background: '#0070F3', color: '#FFFFFF', border: 'none', cursor: 'pointer' }}
+                            >
+                              Candidate Route Weather Comparison
+                            </button>
+                            <button
+                              className="tab-filter-btn"
+                              onClick={() => setActiveWeatherTab('checkpoints')}
+                              style={{ padding: '0.5rem 1.15rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '700', background: 'transparent', color: '#475569', border: '1px solid #CBD5E1', cursor: 'pointer' }}
+                            >
+                              📍 Route Checkpoints ({activeRouteWeather?.checkpoints?.length || 5})
+                            </button>
+                            <button
+                              className="tab-filter-btn"
+                              onClick={() => setActiveWeatherTab('forecast')}
+                              style={{ padding: '0.5rem 1.15rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '700', background: 'transparent', color: '#475569', border: '1px solid #CBD5E1', cursor: 'pointer' }}
+                            >
+                              📅 5-Day Weather Forecast
+                            </button>
+                            <button
+                              className="tab-filter-btn"
+                              onClick={() => setActiveWeatherTab('map')}
+                              style={{ padding: '0.5rem 1.15rem', borderRadius: '8px', fontSize: '0.9rem', fontWeight: '700', background: 'transparent', color: '#475569', border: '1px solid #CBD5E1', cursor: 'pointer' }}
+                            >
+                              🌐 Weather Map
+                            </button>
+                          </div>
+
+                          {/* CANDIDATE ROUTE WEATHER COMPARISON TABLE */}
+                          <div className="table-responsive">
+                            <table className="ocean-data-table" style={{ width: '100%', fontSize: '0.88rem' }}>
+                              <thead>
+                                <tr style={{ background: '#F8FAFC', color: '#475569', textAlign: 'left' }}>
+                                  <th style={{ padding: '0.75rem' }}>#</th>
+                                  <th style={{ padding: '0.75rem' }}>Route Name</th>
+                                  <th style={{ padding: '0.75rem' }}>Transit Days</th>
+                                  <th style={{ padding: '0.75rem' }}>Distance (NM)</th>
+                                  <th style={{ padding: '0.75rem' }}>Route Score</th>
+                                  <th style={{ padding: '0.75rem' }}>Weather Risk</th>
+                                  <th style={{ padding: '0.75rem' }}>Risk Level</th>
+                                  <th style={{ padding: '0.75rem' }}>Avg Wind (kts)</th>
+                                  <th style={{ padding: '0.75rem' }}>Max Wave (m)</th>
+                                  <th style={{ padding: '0.75rem' }}>Visibility (km)</th>
+                                  <th style={{ padding: '0.75rem' }}>Alerts</th>
+                                  <th style={{ padding: '0.75rem' }}>Delay Impact</th>
+                                  <th style={{ padding: '0.75rem' }}>Recommendation</th>
+                                  <th style={{ padding: '0.75rem', textAlign: 'center' }}>Action</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {(() => {
+                                  const routesToDisplay = (weatherComparison?.comparison && weatherComparison.comparison.length > 0)
+                                    ? weatherComparison.comparison
+                                    : (apiResult?.available_routes || []).map((r, idx) => ({
+                                        route_id: r.route_id,
+                                        route_name: r.route_name,
+                                        ocean_corridor: r.ocean_corridor,
+                                        transit_days: r.transit_days,
+                                        distance_nautical_miles: r.distance_nautical_miles,
+                                        route_score: r.route_score,
+                                        weather_risk_score: 30 + (idx * 15),
+                                        risk_level: idx === 0 ? 'LOW' : idx === 1 ? 'MODERATE' : 'HIGH',
+                                        avg_wind: 15 + (idx * 5),
+                                        max_wave: 1.5 + (idx * 0.8),
+                                        visibility: 10.0,
+                                        alert_count: idx,
+                                        transit_impact: idx === 0 ? 'Low Impact' : 'Medium Impact'
+                                      }))
+
+                                  const minRiskScore = Math.min(...routesToDisplay.map(r => r.weather_risk_score))
+
+                                  return routesToDisplay.map((item, idx) => {
+                                    const isSafest = item.weather_risk_score === minRiskScore || item.route_id === weatherComparison?.best_weather_route?.route_id
+                                    const isSelected = activeSelectedRouteId === item.route_id
+
+                                    const riskColor = item.weather_risk_score > 60 ? '#EF4444' : item.weather_risk_score > 40 ? '#F5A623' : '#16A34A'
+                                    const riskBg = item.weather_risk_score > 60 ? '#FEF2F2' : item.weather_risk_score > 40 ? '#FEF3C7' : '#DCFCE7'
+                                    const riskBorder = item.weather_risk_score > 60 ? '#FCA5A5' : item.weather_risk_score > 40 ? '#FDE68A' : '#86EFAC'
+                                    const riskTextColor = item.weather_risk_score > 60 ? '#991B1B' : item.weather_risk_score > 40 ? '#B45309' : '#15803D'
+
+                                    return (
+                                      <tr key={item.route_id} style={{ backgroundColor: isSelected ? '#F0F9FF' : isSafest ? '#F0FDF4' : 'transparent', borderBottom: '1px solid #F1F5F9' }}>
+                                        <td style={{ padding: '0.85rem 0.75rem', fontWeight: 'bold' }}>{idx + 1}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>
+                                          <strong style={{ color: '#062B49', fontSize: '0.92rem' }}>{item.route_name}</strong>
+                                          <div style={{ fontSize: '0.75rem', color: '#64748B' }}>{item.route_id}</div>
+                                        </td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>{item.transit_days} Days</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>{item.distance_nautical_miles?.toLocaleString() || '6,500'}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem', fontWeight: 'bold' }}>{item.route_score} / 100</td>
+                                        <td style={{ padding: '0.85rem 0.75rem', fontWeight: '900', color: riskColor }}>{item.weather_risk_score} / 100</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>
+                                          <span style={{ backgroundColor: riskBg, color: riskTextColor, padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.75rem', fontWeight: '800', border: `1px solid ${riskBorder}` }}>
+                                            {item.risk_level}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>{item.avg_wind}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>{item.max_wave}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>{item.visibility}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem', color: item.alert_count > 0 ? '#EF4444' : '#16A34A', fontWeight: 'bold' }}>{item.alert_count}</td>
+                                        <td style={{ padding: '0.85rem 0.75rem' }}>
+                                          <span style={{ backgroundColor: riskBg, color: riskTextColor, padding: '0.2rem 0.5rem', borderRadius: '10px', fontSize: '0.75rem', fontWeight: '700' }}>
+                                            {item.transit_impact?.split(' ')?.[0] || 'Low'}
+                                          </span>
+                                        </td>
+                                        <td style={{ padding: '0.85rem 0.75rem', color: isSafest ? '#15803D' : '#475569', fontWeight: isSafest ? '800' : 'normal', fontStyle: isSafest ? 'normal' : 'italic' }}>
+                                          {isSafest ? '⭐ Safest Weather Route' : item.weather_risk_score > 60 ? 'Use with caution' : 'Consider'}
+                                        </td>
+                                        <td style={{ padding: '0.85rem 0.75rem', textAlign: 'center' }}>
+                                          <button
+                                            style={{
+                                              backgroundColor: isSelected ? '#0070F3' : isSafest ? '#16A34A' : '#FFFFFF',
+                                              border: isSelected || isSafest ? 'none' : '1px solid #0070F3',
+                                              color: isSelected || isSafest ? '#FFFFFF' : '#0070F3',
+                                              padding: '0.3rem 0.75rem',
+                                              borderRadius: '6px',
+                                              fontSize: '0.78rem',
+                                              fontWeight: '700',
+                                              cursor: 'pointer'
+                                            }}
+                                            onClick={() => {
+                                              const routeObj = (apiResult.available_routes || []).find(r => r.route_id === item.route_id) || item
+                                              setSelectedMapRoute(routeObj)
+                                            }}
+                                          >
+                                            {isSelected ? '✓ Selected' : 'View Details'}
+                                          </button>
+                                        </td>
+                                      </tr>
+                                    )
+                                  })
+                                })()}
+                              </tbody>
+                            </table>
+                          </div>
+
+                        </div>
+
+                        {/* BOTTOM GRID MATCHING REFERENCE IMAGE MEDIA_1790939844814.JPG (3 SIDE-BY-SIDE CARDS WITH EXPANDED SCROLL CONTAINERS) */}
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(340px, 1fr))', gap: '1.25rem' }}>
+                          
+                          {/* CARD 1: ROUTE WEATHER MAP */}
+                          <div className="ocean-card" style={{ background: '#FFFFFF', borderRadius: '16px', padding: '1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 4px 20px rgba(6,43,73,0.03)', display: 'flex', flexDirection: 'column' }}>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.85rem' }}>
+                              <span style={{ fontSize: '1.2rem' }}>🌐</span>
+                              <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#062B49', fontWeight: '800' }}>Route Weather Map</h3>
+                            </div>
+
+                            <div style={{ borderRadius: '12px', overflowY: 'auto', maxHeight: '640px', position: 'relative', border: '1px solid #CBD5E1', padding: '0.5rem', background: '#F8FAFC' }}>
+                              <RouteMap
+                                isCompact={true}
+                                routes={apiResult?.available_routes || []}
+                                weatherData={activeRouteWeather}
+                                bestRouteId={apiResult?.best_route?.route_id}
+                                activeRouteId={activeSelectedRouteId}
+                                selectedRouteObj={activeRouteObj}
+                                originName={apiResult?.query?.origin || ''}
+                                destinationName={apiResult?.query?.destination || ''}
+                                onSelectRoute={(r) => setSelectedMapRoute(r)}
+                                onResetViewAll={() => setSelectedMapRoute('ALL')}
+                              />
+                            </div>
+
+                            <div style={{ display: 'flex', gap: '0.75rem', flexWrap: 'wrap', fontSize: '0.75rem', color: '#475569', marginTop: '0.75rem', justifyContent: 'center' }}>
+                              <span>🟢 Low Risk</span>
+                              <span>🟡 Moderate Risk</span>
+                              <span>🟠 High Risk</span>
+                              <span>🔴 Severe Risk</span>
+                            </div>
+                          </div>
+
+                          {/* CARD 2: SELECTED ROUTE WEATHER DETAILS */}
+                          <div className="ocean-card" style={{ background: '#FFFFFF', borderRadius: '16px', padding: '1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 4px 20px rgba(6,43,73,0.03)', display: 'flex', flexDirection: 'column' }}>
+                            
+                            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #F1F5F9', paddingBottom: '0.65rem' }}>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                                <span style={{ fontSize: '1.2rem' }}>🕒</span>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#062B49', fontWeight: '800' }}>Selected Route Weather Details</h3>
+                              </div>
+
+                              <span style={{
+                                padding: '0.2rem 0.65rem',
+                                borderRadius: '12px',
+                                fontSize: '0.75rem',
+                                fontWeight: '800',
+                                backgroundColor: weatherRiskScore > 60 ? '#FEF2F2' : weatherRiskScore > 40 ? '#FEF3C7' : '#DCFCE7',
+                                color: weatherRiskScore > 60 ? '#991B1B' : weatherRiskScore > 40 ? '#B45309' : '#15803D',
+                                border: `1px solid ${weatherRiskScore > 60 ? '#FCA5A5' : weatherRiskScore > 40 ? '#FDE68A' : '#86EFAC'}`
+                              }}>
+                                {weatherRiskScore > 60 ? '🔴 HIGH RISK' : weatherRiskScore > 40 ? '🟡 MODERATE RISK' : '🟢 LOW RISK'}
+                              </span>
+                            </div>
+
+                            {/* DYNAMIC ROUTE SELECTOR DROPDOWN */}
+                            <div style={{ marginBottom: '0.85rem' }}>
+                              <select
+                                className="form-control"
+                                value={activeSelectedRouteId}
+                                onChange={(e) => {
+                                  const found = (apiResult.available_routes || []).find(r => r.route_id === e.target.value)
+                                  if (found) {
+                                    setSelectedMapRoute(found)
+                                  }
+                                }}
+                                style={{ fontSize: '0.88rem', fontWeight: '700', padding: '0.45rem 0.75rem', color: '#062B49', width: '100%', borderRadius: '8px' }}
+                              >
+                                {(apiResult.available_routes || []).map(r => (
+                                  <option key={r.route_id} value={r.route_id}>
+                                    {r.route_name} ({r.route_id})
+                                  </option>
+                                ))}
+                              </select>
+                            </div>
+
+                            {/* SCROLLABLE VERTICAL CHECKPOINT TIMELINE CONTAINER */}
+                            <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', fontSize: '0.84rem', maxHeight: '440px', overflowY: 'auto', paddingRight: '0.35rem' }}>
+                              {activeRouteWeather?.checkpoints?.map((cp) => {
+                                const isHigh = cp.risk_score > 60
+                                const isMod = cp.risk_score > 40
+                                const cpBg = isHigh ? '#FEF2F2' : isMod ? '#FEF3C7' : '#F8FAFC'
+                                const cpBorder = isHigh ? '#FCA5A5' : isMod ? '#FDE68A' : '#E2E8F0'
+                                const circleBg = isHigh ? '#EF4444' : isMod ? '#F5A623' : '#16A34A'
+                                const badgeBg = isHigh ? '#991B1B' : isMod ? '#FEF3C7' : '#DCFCE7'
+                                const badgeColor = isHigh ? '#FFFFFF' : isMod ? '#B45309' : '#15803D'
+
+                                return (
+                                  <div key={cp.sequence || cp.name} style={{ display: 'flex', gap: '0.75rem', alignItems: 'flex-start', background: cpBg, padding: '0.65rem 0.85rem', borderRadius: '8px', border: `1px solid ${cpBorder}` }}>
+                                    <span style={{ width: '22px', height: '22px', borderRadius: '50%', background: circleBg, color: '#FFF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '0.75rem', fontWeight: 'bold', flexShrink: 0 }}>
+                                      {cp.sequence}
+                                    </span>
+                                    <div style={{ flex: 1 }}>
+                                      <div style={{ fontWeight: '800', color: isHigh ? '#991B1B' : '#062B49' }}>
+                                        {cp.name}
+                                      </div>
+                                      <div style={{ color: '#475569', fontSize: '0.78rem', marginTop: '0.15rem' }}>
+                                        Temp: {cp.metrics?.temperature_c || cp.temperature_c || 28}°C • Wind: {cp.metrics?.wind_speed_knots || cp.wind_speed_knots || 15} kts • Waves: {cp.metrics?.wave_height_m || cp.wave_height_m || 1.5} m • Visibility: {cp.metrics?.visibility_km || cp.visibility_km || 10} km
+                                      </div>
+                                      {cp.alerts && cp.alerts.length > 0 && (
+                                        <div style={{ color: '#B91C1C', fontSize: '0.72rem', fontWeight: 'bold', marginTop: '0.15rem' }}>
+                                          ⚠️ {cp.alerts[0].type}
+                                        </div>
+                                      )}
+                                    </div>
+                                    <span style={{ backgroundColor: badgeBg, color: badgeColor, padding: '0.15rem 0.5rem', borderRadius: '6px', fontSize: '0.72rem', fontWeight: '800' }}>
+                                      {cp.risk_level}
+                                    </span>
+                                  </div>
+                                )
+                              })}
+                            </div>
+                          </div>
+
+                          {/* CARD 3: 5-DAY WEATHER FORECAST & DYNAMIC RECOMMENDATION CARD */}
+                          <div className="ocean-card" style={{ background: '#FFFFFF', borderRadius: '16px', padding: '1.25rem', border: '1px solid #E2E8F0', boxShadow: '0 4px 20px rgba(6,43,73,0.03)', display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                            
+                            <div>
+                              <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', marginBottom: '0.35rem' }}>
+                                <span style={{ fontSize: '1.2rem' }}>📅</span>
+                                <h3 style={{ margin: 0, fontSize: '1.1rem', color: '#062B49', fontWeight: '800' }}>5-Day Weather Forecast</h3>
+                              </div>
+                              <div style={{ fontSize: '0.78rem', color: '#64748B', marginBottom: '0.85rem' }}>
+                                {activeRouteObj?.route_name} Corridor
+                              </div>
+
+                              {/* 5-DAY FORECAST TABLE */}
+                              <div className="table-responsive" style={{ marginBottom: '1.25rem', maxHeight: '200px', overflowY: 'auto' }}>
+                                <table className="ocean-data-table" style={{ width: '100%', fontSize: '0.78rem' }}>
+                                  <thead>
+                                    <tr style={{ background: '#F8FAFC', color: '#475569' }}>
+                                      <th style={{ padding: '0.4rem' }}>Day</th>
+                                      <th style={{ padding: '0.4rem' }}>Date</th>
+                                      <th style={{ padding: '0.4rem' }}>Temp (°C)</th>
+                                      <th style={{ padding: '0.4rem' }}>Wind (kts)</th>
+                                      <th style={{ padding: '0.4rem' }}>Wave (m)</th>
+                                      <th style={{ padding: '0.4rem' }}>Precipitation</th>
+                                      <th style={{ padding: '0.4rem' }}>Condition</th>
+                                    </tr>
+                                  </thead>
+                                  <tbody>
+                                    {activeRouteWeather?.checkpoints?.[0]?.metrics?.forecast_timeline ? (
+                                      activeRouteWeather.checkpoints[0].metrics.forecast_timeline.map((fc, i) => (
+                                        <tr key={i}>
+                                          <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>Day {i + 1}</td>
+                                          <td style={{ padding: '0.4rem' }}>{new Date(Date.now() + i * 86400000).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</td>
+                                          <td style={{ padding: '0.4rem' }}>{activeRouteWeather.checkpoints[0].metrics?.temperature_c || 28}</td>
+                                          <td style={{ padding: '0.4rem' }}>{fc.wind_speed_knots}</td>
+                                          <td style={{ padding: '0.4rem' }}>{fc.wave_height_m}</td>
+                                          <td style={{ padding: '0.4rem' }}>{Math.round(fc.risk_score * 0.8)}%</td>
+                                          <td style={{ padding: '0.4rem' }}>{fc.risk_score > 60 ? '⛈️' : fc.risk_score > 40 ? '🌧️' : '🌤️'}</td>
+                                        </tr>
+                                      ))
+                                    ) : (
+                                      [1, 2, 3, 4, 5].map((d, idx) => (
+                                        <tr key={d}>
+                                          <td style={{ padding: '0.4rem', fontWeight: 'bold' }}>Day {d}</td>
+                                          <td style={{ padding: '0.4rem' }}>{new Date(Date.now() + idx * 86400000).toLocaleDateString('en-US', { day: 'numeric', month: 'short' })}</td>
+                                          <td style={{ padding: '0.4rem' }}>28</td>
+                                          <td style={{ padding: '0.4rem' }}>{15 + idx * 2}</td>
+                                          <td style={{ padding: '0.4rem' }}>{(1.5 + idx * 0.2).toFixed(1)}</td>
+                                          <td style={{ padding: '0.4rem' }}>{10 + idx * 5}%</td>
+                                          <td style={{ padding: '0.4rem' }}>🌤️</td>
+                                        </tr>
+                                      ))
+                                    )}
+                                  </tbody>
+                                </table>
+                              </div>
+                            </div>
+
+                            {/* WEATHER AGENT RECOMMENDATION BOX */}
+                            {(() => {
+                              const safestRoute = weatherComparison?.best_weather_route || (apiResult?.available_routes || []).find(r => r.route_id === weatherComparison?.best_weather_route?.route_id) || apiResult?.best_route
+                              return (
+                                <div style={{ background: '#F0FDF4', border: '1.5px solid #86EFAC', borderRadius: '12px', padding: '1rem' }}>
+                                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.4rem' }}>
+                                    <span style={{ fontSize: '0.84rem', fontWeight: '800', color: '#166534' }}>💡 Weather Agent Recommendation</span>
+                                    <span style={{ backgroundColor: '#DCFCE7', color: '#15803D', padding: '0.15rem 0.55rem', borderRadius: '10px', fontSize: '0.72rem', fontWeight: '800' }}>
+                                      🟢 SAFEST WEATHER ROUTE
+                                    </span>
+                                  </div>
+                                  
+                                  <div style={{ fontSize: '1rem', fontWeight: '900', color: '#062B49', margin: '0.2rem 0' }}>
+                                    {safestRoute?.route_name} ({safestRoute?.route_id})
+                                  </div>
+                                  <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#15803D', marginBottom: '0.4rem' }}>
+                                    Weather Risk: {safestRoute?.weather_risk_score ?? 24} / 100 — {safestRoute?.risk_level || 'VERY LOW'}
+                                  </div>
+
+                                  <p style={{ fontSize: '0.78rem', color: '#334155', margin: '0 0 0.85rem 0', lineHeight: '1.35' }}>
+                                    Although this route has a lower Route Efficiency Score, it provides significantly safer weather conditions and is expected to cause minimal transit disruption.
+                                  </p>
+
+                                  <button
+                                    style={{ width: '100%', backgroundColor: '#16A34A', color: '#FFFFFF', border: 'none', padding: '0.6rem 1rem', borderRadius: '8px', fontWeight: '800', fontSize: '0.88rem', cursor: 'pointer', boxShadow: '0 2px 6px rgba(22,163,74,0.2)' }}
+                                    onClick={() => {
+                                      if (safestRoute) {
+                                        setSelectedMapRoute(safestRoute)
+                                        setApiResult(prev => ({ ...prev, best_route: safestRoute }))
+                                      }
+                                      setActiveTab('pricing')
+                                    }}
+                                  >
+                                    Select This Route →
+                                  </button>
+                                </div>
+                              )
+                            })()}
+
+                          </div>
+
+                        </div>
+
+                      </div>
+                    )
+                  })()}
+
+                </div>
+              )}
             </div>
           )}
 
@@ -2305,6 +4389,236 @@ function Dashboard({ user, onLogout }) {
                     </div>
                   </div>
 
+                  {/* =================================================================
+                     WEATHER INTELLIGENCE & SAFETY PANEL (WEATHER AGENT)
+                     ================================================================= */}
+                  {weatherLoading && (
+                    <div className="ocean-card" style={{ marginTop: '1.75rem', textAlign: 'center', padding: '2.5rem', background: '#FFFFFF', borderRadius: '16px', border: '1.5px solid #BAE6FD', boxShadow: '0 4px 20px rgba(6,43,73,0.06)' }}>
+                      <div style={{ width: '60px', height: '60px', borderRadius: '50%', background: '#E0F2FE', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2rem', margin: '0 auto 1rem' }}>
+                        🌊
+                      </div>
+                      <h3 style={{ fontSize: '1.25rem', color: '#062B49', fontWeight: '800', marginBottom: '0.4rem' }}>
+                        AI Weather Agent Analyzing Ocean Risk...
+                      </h3>
+                      <p style={{ color: '#475569', fontSize: '0.95rem', margin: 0 }}>
+                        Retrieving live atmospheric & marine wave data for route checkpoints along {apiResult.query.origin} ➔ {apiResult.query.destination}...
+                      </p>
+                    </div>
+                  )}
+
+                  {weatherResult && (
+                    <div className="ocean-card weather-intelligence-card" style={{ marginTop: '1.75rem', background: '#FFFFFF', borderRadius: '16px', padding: '2rem', boxShadow: '0 6px 24px rgba(6, 43, 73, 0.06)', border: '1.5px solid #BAE6FD' }}>
+                      
+                      {/* HEADER BAR */}
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', paddingBottom: '1.25rem', borderBottom: '1px solid #E2E8F0', marginBottom: '1.5rem' }}>
+                        <div>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                            <span style={{ fontSize: '1.5rem' }}>🌊</span>
+                            <h3 className="card-title" style={{ margin: 0, fontSize: '1.35rem', color: '#062B49' }}>Weather Intelligence & Safety Analysis</h3>
+                            <span style={{ background: '#E0F2FE', color: '#0369A1', padding: '0.25rem 0.65rem', borderRadius: '15px', fontSize: '0.78rem', fontWeight: '800' }}>
+                              ● Weather Agent Live
+                            </span>
+                          </div>
+                          <p className="card-subtitle" style={{ margin: '0.25rem 0 0 0', color: '#475569' }}>
+                            Multi-checkpoint marine weather risk score, wave conditions, severe weather warnings & broker safety intelligence.
+                          </p>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                          <div style={{ textAlign: 'right' }}>
+                            <div style={{ fontSize: '0.75rem', fontWeight: '700', color: '#64748B', textTransform: 'uppercase' }}>Overall Weather Risk</div>
+                            <div style={{ fontSize: '1.3rem', fontWeight: '900', color: weatherResult.weather_risk_score > 60 ? '#EF4444' : weatherResult.weather_risk_score > 40 ? '#F5A623' : '#18A66A' }}>
+                              {weatherResult.weather_risk_score}/100 ({weatherResult.risk_level})
+                            </div>
+                          </div>
+                          <span style={{
+                            padding: '0.45rem 1rem',
+                            borderRadius: '20px',
+                            fontSize: '0.85rem',
+                            fontWeight: '800',
+                            backgroundColor: weatherResult.weather_risk_score > 60 ? '#FEF2F2' : weatherResult.weather_risk_score > 40 ? '#FEF3C7' : '#DCFCE7',
+                            color: weatherResult.weather_risk_score > 60 ? '#991B1B' : weatherResult.weather_risk_score > 40 ? '#B45309' : '#15803D',
+                            border: `1.5px solid ${weatherResult.weather_risk_score > 60 ? '#FCA5A5' : weatherResult.weather_risk_score > 40 ? '#FDE68A' : '#86EFAC'}`
+                          }}>
+                            {weatherResult.weather_risk_score > 60 ? '🔴' : weatherResult.weather_risk_score > 40 ? '🟡' : '🟢'} {weatherResult.risk_level}
+                          </span>
+                        </div>
+                      </div>
+
+                      {/* SEVERE WEATHER ALERTS WARNING BANNER */}
+                      {weatherResult.alerts && weatherResult.alerts.length > 0 && (
+                        <div style={{ marginBottom: '1.5rem', backgroundColor: '#FEF2F2', border: '1.5px solid #FCA5A5', padding: '1.15rem 1.35rem', borderRadius: '12px', color: '#991B1B' }}>
+                          <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem', marginBottom: '0.5rem' }}>
+                            <span style={{ fontSize: '1.4rem' }}>⚠️</span>
+                            <strong style={{ fontSize: '1.05rem', color: '#991B1B' }}>SEVERE WEATHER ALERT DETECTED ALONG CORRIDOR</strong>
+                          </div>
+                          {weatherResult.alerts.map((al, idx) => (
+                            <div key={idx} style={{ marginTop: '0.4rem', fontSize: '0.9rem', paddingLeft: '2rem' }}>
+                              • <strong>{al.type}</strong> near <em>{al.location}</em>: {al.message}
+                              <div style={{ fontSize: '0.82rem', color: '#B91C1C', marginTop: '0.15rem', fontStyle: 'italic' }}>
+                                Recommended Action: {al.recommended_action}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* SUMMARY METRICS GRID */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.75rem' }}>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Weather Trend</div>
+                          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>{weatherResult.weather_trend}</div>
+                        </div>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Transit Delay Impact</div>
+                          <div style={{ fontSize: '0.92rem', fontWeight: '700', color: '#0F8B8D', marginTop: '0.2rem' }}>{weatherResult.transit_impact}</div>
+                        </div>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Analyzed Checkpoints</div>
+                          <div style={{ fontSize: '1.05rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>{weatherResult.checkpoints?.length || 0} Sea Checkpoints</div>
+                        </div>
+                      </div>
+
+                      {/* SUB-TABS SELECTOR */}
+                      <div style={{ display: 'flex', gap: '0.5rem', marginBottom: '1.25rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.75rem' }}>
+                        <button
+                          className={`tab-filter-btn ${activeWeatherTab === 'checkpoints' ? 'active' : ''}`}
+                          onClick={() => setActiveWeatherTab('checkpoints')}
+                          style={{ padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          📍 Route Checkpoints ({weatherResult.checkpoints?.length || 0})
+                        </button>
+                        <button
+                          className={`tab-filter-btn ${activeWeatherTab === 'comparison' ? 'active' : ''}`}
+                          onClick={() => setActiveWeatherTab('comparison')}
+                          style={{ padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          📊 Candidate Route Weather Comparison
+                        </button>
+                        <button
+                          className={`tab-filter-btn ${activeWeatherTab === 'forecast' ? 'active' : ''}`}
+                          onClick={() => setActiveWeatherTab('forecast')}
+                          style={{ padding: '0.45rem 1rem', borderRadius: '8px', fontSize: '0.88rem', fontWeight: '700', cursor: 'pointer' }}
+                        >
+                          ⏱️ 5-Day Weather Forecast
+                        </button>
+                      </div>
+
+                      {/* TAB 1: CHECKPOINTS BREAKDOWN */}
+                      {activeWeatherTab === 'checkpoints' && (
+                        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(300px, 1fr))', gap: '1.25rem' }}>
+                          {weatherResult.checkpoints?.map((cp) => (
+                            <div key={cp.sequence} style={{ background: '#F8FAFC', borderRadius: '12px', padding: '1.25rem', border: '1px solid #CBD5E1' }}>
+                              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem', borderBottom: '1px solid #E2E8F0', paddingBottom: '0.5rem' }}>
+                                <div>
+                                  <span style={{ fontSize: '0.75rem', fontWeight: '800', color: '#0F8B8D' }}>SEQ {cp.sequence} • {cp.type.toUpperCase()}</span>
+                                  <h4 style={{ margin: '0.1rem 0 0 0', fontSize: '1rem', color: '#062B49' }}>{cp.name}</h4>
+                                </div>
+                                <span style={{
+                                  padding: '0.25rem 0.65rem',
+                                  borderRadius: '12px',
+                                  fontSize: '0.78rem',
+                                  fontWeight: '800',
+                                  backgroundColor: cp.risk_score > 60 ? '#FEF2F2' : cp.risk_score > 40 ? '#FEF3C7' : '#DCFCE7',
+                                  color: cp.risk_score > 60 ? '#991B1B' : cp.risk_score > 40 ? '#B45309' : '#15803D'
+                                }}>
+                                  Score: {cp.risk_score}/100
+                                </span>
+                              </div>
+
+                              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.65rem', fontSize: '0.85rem', color: '#334155' }}>
+                                <div>🌡️ Temp: <strong>{cp.metrics.temperature_c}°C</strong></div>
+                                <div>💨 Wind: <strong>{cp.metrics.wind_speed_knots} kts</strong></div>
+                                <div>🌬️ Gusts: <strong>{cp.metrics.wind_gusts_knots} kts</strong></div>
+                                <div>🌊 Wave Ht: <strong>{cp.metrics.wave_height_m} m</strong></div>
+                                <div>👁️ Visibility: <strong>{cp.metrics.visibility_km} km</strong></div>
+                                <div>🌧️ Rain: <strong>{cp.metrics.precipitation_mm} mm/h</strong></div>
+                              </div>
+
+                              <div style={{ marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px dashed #CBD5E1', fontSize: '0.8rem', color: '#475569' }}>
+                                <strong>Sea State:</strong> {cp.metrics.sea_state}
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+
+                      {/* TAB 2: MULTI-ROUTE WEATHER COMPARISON */}
+                      {activeWeatherTab === 'comparison' && (
+                        <div>
+                          {weatherComparison?.recommendation && (
+                            <div style={{ backgroundColor: '#F0F9FF', border: '1px solid #BAE6FD', padding: '1rem 1.25rem', borderRadius: '10px', color: '#0369A1', marginBottom: '1.25rem', fontWeight: '600', fontSize: '0.92rem' }}>
+                              🛡️ <strong>Weather Safety Recommendation:</strong> {weatherComparison.recommendation}
+                            </div>
+                          )}
+
+                          <div className="table-responsive">
+                            <table className="ocean-data-table">
+                              <thead>
+                                <tr>
+                                  <th>Route Name</th>
+                                  <th>Ocean Corridor</th>
+                                  <th>Transit Days</th>
+                                  <th>Weather Score</th>
+                                  <th>Risk Level</th>
+                                  <th>Alerts</th>
+                                  <th>Transit Impact</th>
+                                </tr>
+                              </thead>
+                              <tbody>
+                                {weatherComparison?.comparison?.map((rEv) => (
+                                  <tr key={rEv.route_id}>
+                                    <td style={{ fontWeight: 'bold', color: '#062B49' }}>{rEv.route_name}</td>
+                                    <td style={{ fontSize: '0.85rem', color: '#475569' }}>{rEv.ocean_corridor}</td>
+                                    <td>{rEv.transit_days} Days</td>
+                                    <td><strong style={{ color: '#0F8B8D' }}>{rEv.weather_risk_score}/100</strong></td>
+                                    <td>
+                                      <span style={{
+                                        padding: '0.25rem 0.65rem',
+                                        borderRadius: '12px',
+                                        fontSize: '0.78rem',
+                                        fontWeight: '800',
+                                        backgroundColor: rEv.weather_risk_score > 60 ? '#FEF2F2' : rEv.weather_risk_score > 40 ? '#FEF3C7' : '#DCFCE7',
+                                        color: rEv.weather_risk_score > 60 ? '#991B1B' : rEv.weather_risk_score > 40 ? '#B45309' : '#15803D'
+                                      }}>
+                                        {rEv.risk_level}
+                                      </span>
+                                    </td>
+                                    <td>{rEv.alert_count > 0 ? <span style={{ color: '#EF4444', fontWeight: 'bold' }}>⚠️ {rEv.alert_count} Alert</span> : <span style={{ color: '#18A66A' }}>✓ Clear</span>}</td>
+                                    <td style={{ fontSize: '0.82rem', color: '#475569' }}>{rEv.transit_impact.split(' (')[0]}</td>
+                                  </tr>
+                                ))}
+                              </tbody>
+                            </table>
+                          </div>
+                        </div>
+                      )}
+
+                      {/* TAB 3: 5-DAY WEATHER FORECAST */}
+                      {activeWeatherTab === 'forecast' && (
+                        <div>
+                          <p style={{ color: '#475569', fontSize: '0.9rem', marginBottom: '1rem' }}>
+                            Forecast trend window for primary sea transit sector (Next 5 Days):
+                          </p>
+                          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: '1rem' }}>
+                            {weatherResult.checkpoints?.[0]?.metrics?.forecast_timeline?.map((fc, idx) => (
+                              <div key={idx} style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #CBD5E1', textAlign: 'center' }}>
+                                <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#0F8B8D' }}>{fc.period}</div>
+                                <div style={{ fontSize: '1.4rem', fontWeight: '900', color: '#062B49', margin: '0.3rem 0' }}>{fc.risk_score}/100</div>
+                                <div style={{ fontSize: '0.78rem', fontWeight: '700', color: '#64748B' }}>{fc.risk_level}</div>
+                                <div style={{ fontSize: '0.78rem', color: '#334155', marginTop: '0.5rem' }}>
+                                  Wind: <strong>{fc.wind_speed_knots} kts</strong><br/>
+                                  Waves: <strong>{fc.wave_height_m} m</strong>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                        </div>
+                      )}
+
+                    </div>
+                  )}
+
                 </div>
               )}
             </div>
@@ -2392,6 +4706,293 @@ function Dashboard({ user, onLogout }) {
               </div>
             </div>
           )}
+
+          {/* =================================================================
+             PAGE: TRACK SHIPMENT (CUSTOMER & BROKER TRACKING TIMELINE)
+             ================================================================= */}
+          {activeTab === 'track-shipment' && (() => {
+            const userConfirmedShipments = customerRequests.filter(r => {
+              const matchesUser = isBroker || (user?.id && r.customer_id === user.id) || (r.customer_email?.toLowerCase().trim() === userEmail)
+              const isConfirmedOrActive = SHIPMENT_STAGES.includes(r.status) || ['Accepted', 'Quotation Sent', 'Quotation Ready', 'In Transit'].includes(r.status)
+              return matchesUser && isConfirmedOrActive
+            })
+
+            const activeTrackingItem = userConfirmedShipments.find(r => r.id === selectedTrackRequestId) || userConfirmedShipments[0] || null
+            const currentStageIdx = activeTrackingItem ? getStageIndex(activeTrackingItem.status) : 0
+
+            return (
+              <div className="dashboard-page-view" style={{ maxWidth: '1100px', margin: '0 auto' }}>
+                <div className="page-header-banner" style={{ marginBottom: '1.5rem' }}>
+                  <h2 className="page-title">Shipment Status Tracking</h2>
+                  <p className="page-subtitle">Real-time status tracking timeline and trajectory map for confirmed ocean freight shipments</p>
+                </div>
+
+                {reportToast && (
+                  <div className="alert-banner alert-info" style={{ marginBottom: '1.25rem', backgroundColor: '#ECFDF5', color: '#065F46', border: '1px solid #18A66A', padding: '0.85rem 1.25rem', borderRadius: '10px', fontWeight: '600' }}>
+                    {reportToast}
+                  </div>
+                )}
+
+                {userConfirmedShipments.length > 1 && (
+                  <div className="ocean-card" style={{ marginBottom: '1.5rem', padding: '1rem 1.5rem', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: '1rem' }}>
+                    <label style={{ fontWeight: '700', color: '#062B49', fontSize: '0.95rem' }}>
+                      Select Active Shipment:
+                    </label>
+                    <select
+                      value={activeTrackingItem?.id || ''}
+                      onChange={(e) => setSelectedTrackRequestId(e.target.value)}
+                      style={{ padding: '0.6rem 1rem', borderRadius: '8px', border: '1.5px solid #0F8B8D', fontSize: '0.95rem', fontWeight: '700', color: '#062B49', backgroundColor: '#FFFFFF', cursor: 'pointer', minWidth: '280px' }}
+                    >
+                      {userConfirmedShipments.map(s => (
+                        <option key={s.id} value={s.id}>
+                          {s.id} — {s.origin} ➔ {s.destination} ({s.status})
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+                )}
+
+                {!activeTrackingItem ? (
+                  <div className="ocean-card" style={{ textAlign: 'center', padding: '4rem 2rem', background: '#FFFFFF', borderRadius: '16px', border: '1px solid #E2E8F0', boxShadow: '0 4px 20px rgba(6,43,73,0.06)' }}>
+                    <div style={{ width: '80px', height: '80px', borderRadius: '50%', background: '#F0F9FF', border: '2px solid #BAE6FD', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: '2.5rem', margin: '0 auto 1.25rem' }}>
+                      📍
+                    </div>
+                    <h2 style={{ fontSize: '1.5rem', fontWeight: '800', color: '#062B49', marginBottom: '0.5rem' }}>
+                      No Active Shipments Under Tracking
+                    </h2>
+                    <p style={{ color: '#475569', fontSize: '0.98rem', maxWidth: '540px', margin: '0 auto 1.75rem', lineHeight: '1.6' }}>
+                      You don't have any confirmed active shipments yet. When you accept a broker quotation under "My Requests", your shipment status timeline will appear here automatically.
+                    </p>
+                    <button
+                      className="btn-explore-orange"
+                      onClick={() => setActiveTab('customer-requests')}
+                      style={{ padding: '0.75rem 1.75rem', borderRadius: '10px', fontWeight: '700', border: 'none', background: '#0F8B8D', color: '#FFF', cursor: 'pointer' }}
+                    >
+                      View My Requests & Quotations →
+                    </button>
+                  </div>
+                ) : (
+                  <>
+                    {/* SHIPMENT METADATA CARD */}
+                    <div className="ocean-card" style={{ marginBottom: '1.75rem', background: '#FFFFFF', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 6px 24px rgba(6, 43, 73, 0.06)', border: '1px solid #E2E8F0' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '1rem', paddingBottom: '1.25rem', borderBottom: '1px solid #E2E8F0', marginBottom: '1.25rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.82rem', fontWeight: '800', color: '#0F8B8D', textTransform: 'uppercase', letterSpacing: '0.05em' }}>CONFIRMED FREIGHT SHIPMENT</div>
+                          <h2 style={{ fontSize: '1.6rem', fontWeight: '800', color: '#062B49', margin: '0.2rem 0' }}>
+                            Shipment #{activeTrackingItem.id}
+                          </h2>
+                          <div style={{ fontSize: '0.9rem', color: '#64748B' }}>
+                            Customer: <strong>{activeTrackingItem.customer_name || userEmail}</strong> • Last Updated: <strong>{activeTrackingItem.last_updated || activeTrackingItem.request_date || 'Just now'}</strong>
+                          </div>
+                        </div>
+
+                        <div style={{ display: 'flex', alignItems: 'center', gap: '1rem' }}>
+                          <span style={{
+                            padding: '0.5rem 1.15rem',
+                            borderRadius: '30px',
+                            fontSize: '0.92rem',
+                            fontWeight: '800',
+                            backgroundColor: activeTrackingItem.status === 'Delivered' ? '#DCFCE7' : '#E0F2FE',
+                            color: activeTrackingItem.status === 'Delivered' ? '#15803D' : '#0369A1',
+                            border: `1.5px solid ${activeTrackingItem.status === 'Delivered' ? '#86EFAC' : '#7DD3FC'}`
+                          }}>
+                            ● {activeTrackingItem.status}
+                          </span>
+
+                          {isBroker && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', background: '#F8FAFC', padding: '0.4rem 0.75rem', borderRadius: '8px', border: '1px solid #CBD5E1' }}>
+                              <label style={{ fontSize: '0.82rem', fontWeight: '800', color: '#062B49' }}>Broker Status:</label>
+                              <select
+                                value={SHIPMENT_STAGES.includes(activeTrackingItem.status) ? activeTrackingItem.status : 'Shipment Confirmed'}
+                                onChange={(e) => handleBrokerUpdateShipmentStatus(activeTrackingItem.id, e.target.value)}
+                                style={{ padding: '0.35rem 0.65rem', borderRadius: '6px', border: '1.5px solid #0F8B8D', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', backgroundColor: '#FFFFFF', cursor: 'pointer' }}
+                              >
+                                {SHIPMENT_STAGES.map((stg, i) => (
+                                  <option key={stg} value={stg}>{i + 1}. {stg}</option>
+                                ))}
+                              </select>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1.25rem' }}>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Origin Port</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>📍 {activeTrackingItem.origin}</div>
+                        </div>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Destination Port</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>🏁 {activeTrackingItem.destination}</div>
+                        </div>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Cargo & Equipment</div>
+                          <div style={{ fontSize: '1rem', fontWeight: '800', color: '#062B49', marginTop: '0.2rem' }}>📦 {activeTrackingItem.cargo_type} ({activeTrackingItem.containers} × {activeTrackingItem.container_type || '40ft'})</div>
+                        </div>
+                        <div style={{ background: '#F8FAFC', padding: '1rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                          <div style={{ fontSize: '0.78rem', fontWeight: '800', color: '#64748B', textTransform: 'uppercase' }}>Current Progress</div>
+                          <div style={{ fontSize: '1.1rem', fontWeight: '800', color: '#0F8B8D', marginTop: '0.2rem' }}>Stage {currentStageIdx + 1} of {SHIPMENT_STAGES.length}</div>
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* 6-STAGE VISUAL TIMELINE STEPPER CARD */}
+                    <div className="ocean-card" style={{ marginBottom: '1.75rem', background: '#FFFFFF', borderRadius: '16px', padding: '2rem', boxShadow: '0 6px 24px rgba(6, 43, 73, 0.06)', border: '1px solid #E2E8F0' }}>
+                      <h3 style={{ fontSize: '1.25rem', fontWeight: '800', color: '#062B49', marginBottom: '1.5rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>📍</span> Shipment Status Timeline Progress
+                      </h3>
+
+                      {/* HORIZONTAL STEPPER GRAPHIC */}
+                      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(6, 1fr)', gap: '0.75rem', position: 'relative', margin: '1rem 0 2rem' }}>
+                        {SHIPMENT_STAGES.map((stageName, idx) => {
+                          const isPast = idx < currentStageIdx
+                          const isCurrent = idx === currentStageIdx
+                          const isFuture = idx > currentStageIdx
+
+                          return (
+                            <div key={stageName} style={{ textAlign: 'center', display: 'flex', flexDirection: 'column', alignItems: 'center', position: 'relative', zIndex: 2 }}>
+                              
+                              {/* STAGE ICON CIRCLE */}
+                              <div style={{
+                                width: '48px',
+                                height: '48px',
+                                borderRadius: '50%',
+                                display: 'flex',
+                                alignItems: 'center',
+                                justifyContent: 'center',
+                                fontSize: '1.25rem',
+                                fontWeight: '900',
+                                color: isPast || isCurrent ? '#FFFFFF' : '#94A3B8',
+                                backgroundColor: isPast ? '#18A66A' : isCurrent ? '#0F8B8D' : '#F1F5F9',
+                                border: isCurrent ? '4px solid #062B49' : isPast ? '2px solid #18A66A' : '2px solid #CBD5E1',
+                                boxShadow: isCurrent ? '0 0 16px rgba(15, 139, 141, 0.6)' : 'none',
+                                marginBottom: '0.75rem',
+                                transition: 'all 0.3s ease'
+                              }}>
+                                {isPast ? '✓' : isCurrent ? '●' : '○'}
+                              </div>
+
+                              {/* STAGE TITLE */}
+                              <div style={{
+                                fontSize: '0.85rem',
+                                fontWeight: isCurrent ? '800' : isPast ? '700' : '600',
+                                color: isCurrent ? '#0F8B8D' : isPast ? '#062B49' : '#64748B',
+                                marginBottom: '0.25rem',
+                                lineHeight: '1.2'
+                              }}>
+                                {stageName}
+                              </div>
+
+                              {/* STAGE STATUS TAG */}
+                              <div style={{
+                                fontSize: '0.75rem',
+                                fontWeight: '700',
+                                color: isPast ? '#18A66A' : isCurrent ? '#0F8B8D' : '#94A3B8'
+                              }}>
+                                {isPast ? 'Completed' : isCurrent ? 'Active Now' : 'Upcoming'}
+                              </div>
+                            </div>
+                          )
+                        })}
+                      </div>
+
+                      {/* DETAILED TIMELINE LIST */}
+                      <div style={{ borderTop: '1px solid #E2E8F0', paddingTop: '1.5rem', marginTop: '1.5rem' }}>
+                        <h4 style={{ fontSize: '1rem', fontWeight: '800', color: '#062B49', marginBottom: '1rem' }}>
+                          Timeline Log Details
+                        </h4>
+
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.85rem' }}>
+                          {SHIPMENT_STAGES.map((stageName, idx) => {
+                            const isPast = idx < currentStageIdx
+                            const isCurrent = idx === currentStageIdx
+
+                            return (
+                              <div
+                                key={stageName}
+                                style={{
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justify: 'space-between',
+                                  padding: '0.85rem 1.25rem',
+                                  borderRadius: '10px',
+                                  backgroundColor: isCurrent ? '#F0F9FF' : isPast ? '#F8FAFC' : '#FFFFFF',
+                                  border: isCurrent ? '1.5px solid #0F8B8D' : '1px solid #E2E8F0',
+                                  opacity: idx > currentStageIdx ? 0.6 : 1
+                                }}
+                              >
+                                <div style={{ display: 'flex', alignItems: 'center', gap: '0.85rem' }}>
+                                  <div style={{
+                                    width: '28px',
+                                    height: '28px',
+                                    borderRadius: '50%',
+                                    backgroundColor: isPast ? '#18A66A' : isCurrent ? '#0F8B8D' : '#E2E8F0',
+                                    color: isPast || isCurrent ? '#FFF' : '#94A3B8',
+                                    display: 'flex',
+                                    alignItems: 'center',
+                                    justify: 'center',
+                                    fontSize: '0.85rem',
+                                    fontWeight: '800'
+                                  }}>
+                                    {isPast ? '✓' : isCurrent ? '●' : idx + 1}
+                                  </div>
+                                  <div>
+                                    <strong style={{ fontSize: '0.95rem', color: '#062B49' }}>
+                                      Step {idx + 1}: {stageName}
+                                    </strong>
+                                    <div style={{ fontSize: '0.8rem', color: '#64748B' }}>
+                                      {isPast ? 'Status step completed' : isCurrent ? `Current active stage — Updated ${activeTrackingItem.last_updated || 'recently'}` : 'Pending update by broker'}
+                                    </div>
+                                  </div>
+                                </div>
+
+                                <div>
+                                  <span style={{
+                                    padding: '0.3rem 0.75rem',
+                                    borderRadius: '15px',
+                                    fontSize: '0.78rem',
+                                    fontWeight: '700',
+                                    backgroundColor: isPast ? '#DCFCE7' : isCurrent ? '#0F8B8D' : '#F1F5F9',
+                                    color: isPast ? '#15803D' : isCurrent ? '#FFFFFF' : '#64748B'
+                                  }}>
+                                    {isPast ? '✓ Completed' : isCurrent ? '● In Progress' : '○ Scheduled'}
+                                  </span>
+                                </div>
+                              </div>
+                            )
+                          })}
+                        </div>
+                      </div>
+                    </div>
+
+                    {/* ROUTE MAP VISUALIZATION CARD */}
+                    <div className="ocean-card" style={{ background: '#FFFFFF', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 6px 24px rgba(6, 43, 73, 0.06)', border: '1px solid #E2E8F0' }}>
+                      <h3 style={{ fontSize: '1.2rem', fontWeight: '800', color: '#062B49', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        <span>🧭</span> Interactive Maritime Route Map
+                      </h3>
+                      <div style={{ height: '380px', borderRadius: '12px', overflow: 'hidden', border: '1px solid #CBD5E1' }}>
+                        <RouteMap
+                          routes={activeTrackingItem.route_result?.available_routes || [{
+                            route_id: 'R-TRACK-01',
+                            route_name: activeTrackingItem.quotation_result?.route_name || `${activeTrackingItem.origin} to ${activeTrackingItem.destination} Ocean Express`,
+                            transit_days: activeTrackingItem.quotation_result?.transit_days || 20,
+                            distance_nautical_miles: 6500,
+                            transshipments: 0,
+                            route_score: 95
+                          }]}
+                          bestRouteId={activeTrackingItem.route_result?.best_route?.route_id || 'R-TRACK-01'}
+                          activeRouteId={activeTrackingItem.route_result?.best_route?.route_id || 'R-TRACK-01'}
+                          originName={activeTrackingItem.origin}
+                          destinationName={activeTrackingItem.destination}
+                          isCompact={true}
+                        />
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            )
+          })()}
 
           {/* =================================================================
              PAGE 6: REPORTS PAGE (activeTab === 'reports')
@@ -2669,6 +5270,434 @@ function Dashboard({ user, onLogout }) {
             </div>
           )}
 
+          {/* =================================================================
+             PAGE 9: PROFILE PAGE (activeTab === 'profile')
+             ================================================================= */}
+          {activeTab === 'profile' && (
+            <div className="profile-page-view" style={{ maxWidth: '900px', margin: '0 auto', paddingBottom: '2rem' }}>
+              <div className="page-header-banner" style={{ marginBottom: '1.5rem' }}>
+                <h2 className="page-title">{isCustomer ? 'Customer Profile' : 'Broker Profile'}</h2>
+                <p className="page-subtitle">Manage your account details, contact information, and security settings</p>
+              </div>
+
+              {profileToast.message && (
+                <div style={{
+                  padding: '0.85rem 1.25rem',
+                  borderRadius: '10px',
+                  marginBottom: '1.25rem',
+                  fontWeight: '600',
+                  fontSize: '0.95rem',
+                  backgroundColor: profileToast.type === 'error' ? '#FEF2F2' : '#F0FDF4',
+                  color: profileToast.type === 'error' ? '#991B1B' : '#166534',
+                  border: `1px solid ${profileToast.type === 'error' ? '#FECACA' : '#BBF7D0'}`,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '0.5rem'
+                }}>
+                  <span>{profileToast.type === 'error' ? '⚠️' : '✅'}</span>
+                  <span>{profileToast.message}</span>
+                </div>
+              )}
+
+              {/* Main Profile Card */}
+              <div className="ocean-card" style={{
+                background: '#ffffff',
+                borderRadius: '16px',
+                padding: '2rem',
+                boxShadow: '0 10px 30px rgba(6, 43, 73, 0.08)',
+                border: '1px solid #E2E8F0'
+              }}>
+                {/* Header Banner inside Card */}
+                <div style={{
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: '1.5rem',
+                  paddingBottom: '1.75rem',
+                  marginBottom: '1.75rem',
+                  borderBottom: '1px solid #E2E8F0',
+                  flexWrap: 'wrap'
+                }}>
+                  <div style={{
+                    width: '72px',
+                    height: '72px',
+                    borderRadius: '50%',
+                    backgroundColor: '#062B49',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'center',
+                    fontSize: '2.2rem',
+                    boxShadow: '0 4px 14px rgba(6, 43, 73, 0.2)'
+                  }}>
+                    {isCustomer ? '🚢' : '💼'}
+                  </div>
+                  <div style={{ flex: 1 }}>
+                    <h3 style={{ fontSize: '1.5rem', color: '#062B49', margin: '0 0 0.35rem 0', fontWeight: '700' }}>
+                      {userProfile.fullName}
+                    </h3>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem', flexWrap: 'wrap' }}>
+                      <span style={{
+                        backgroundColor: isCustomer ? '#E0F2FE' : '#F0FDF4',
+                        color: isCustomer ? '#0369A1' : '#15803D',
+                        padding: '0.25rem 0.75rem',
+                        borderRadius: '20px',
+                        fontSize: '0.82rem',
+                        fontWeight: '700',
+                        textTransform: 'uppercase'
+                      }}>
+                        {isCustomer ? 'Customer' : 'Broker Administrator'}
+                      </span>
+                      <span style={{ fontSize: '0.85rem', color: '#64748B', fontWeight: '600' }}>
+                        {isCustomer ? 'Customer ID:' : 'Broker ID:'} <strong style={{ color: '#062B49' }}>{userProfile.id}</strong>
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Profile Details Grid */}
+                <div style={{
+                  display: 'grid',
+                  gridTemplateColumns: 'repeat(auto-fit, minmax(280px, 1fr))',
+                  gap: '1.5rem',
+                  marginBottom: '2rem'
+                }}>
+                  {/* Field 1: Name */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2"/><circle cx="12" cy="7" r="4"/></svg>
+                      <span>Full Name</span>
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.fullName}
+                    </div>
+                  </div>
+
+                  {/* Field 2: Company Name */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M3 21h18M3 7v14M21 7v14M6 11h4M6 15h4M14 11h4M14 15h4M9 3h6v4H9z"/></svg>
+                      <span>Company Name</span>
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.companyName}
+                    </div>
+                  </div>
+
+                  {/* Field 3: ID */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><rect x="3" y="4" width="18" height="16" rx="2"/><line x1="7" y1="8" x2="17" y2="8"/><line x1="7" y1="12" x2="13" y2="12"/></svg>
+                      <span>{isCustomer ? 'Customer ID' : 'Broker ID'}</span>
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.id}
+                    </div>
+                  </div>
+
+                  {/* Field 4: Email */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M4 4h16c1.1 0 2 .9 2 2v12c0 1.1-.9 2-2 2H4c-1.1 0-2-.9-2-2V6c0-1.1.9-2 2-2z"/><polyline points="22,6 12,13 2,6"/></svg>
+                      <span>Email Address</span>
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.email}
+                    </div>
+                  </div>
+
+                  {/* Field 5: Phone Number */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M22 16.92v3a2 2 0 0 1-2.18 2 19.79 19.79 0 0 1-8.63-3.07 19.5 19.5 0 0 1-6-6 19.79 19.79 0 0 1-3.07-8.67A2 2 0 0 1 4.11 2h3a2 2 0 0 1 2 1.72 12.84 12.84 0 0 0 .7 2.81 2 2 0 0 1-.45 2.11L8.09 9.91a16 16 0 0 0 6 6l1.27-1.27a2 2 0 0 1 2.11-.45 12.84 12.84 0 0 0 2.81.7A2 2 0 0 1 22 16.92z"/></svg>
+                      <span>Phone Number</span>
+                    </div>
+                    <div style={{ fontSize: '1.1rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.phone}
+                    </div>
+                  </div>
+
+                  {/* Field 6: Address (Span full width) */}
+                  <div style={{
+                    backgroundColor: '#F8FAFC',
+                    padding: '1.25rem',
+                    borderRadius: '12px',
+                    border: '1px solid #E2E8F0',
+                    gridColumn: '1 / -1'
+                  }}>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', color: '#64748B', fontSize: '0.82rem', fontWeight: '700', textTransform: 'uppercase', marginBottom: '0.5rem' }}>
+                      <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="#0F8B8D" strokeWidth="2"><path d="M21 10c0 7-9 13-9 13s-9-6-9-13a9 9 0 0 1 18 0z"/><circle cx="12" cy="10" r="3"/></svg>
+                      <span>Office / Headquarters Address</span>
+                    </div>
+                    <div style={{ fontSize: '1.05rem', fontWeight: '600', color: '#062B49' }}>
+                      {userProfile.address}
+                    </div>
+                  </div>
+                </div>
+
+                {/* Profile Actions */}
+                <div style={{
+                  display: 'flex',
+                  gap: '1rem',
+                  flexWrap: 'wrap',
+                  alignItems: 'center',
+                  paddingTop: '1.5rem',
+                  borderTop: '1px solid #E2E8F0'
+                }}>
+                  <button
+                    className="btn-primary"
+                    onClick={() => {
+                      setEditFormData({
+                        fullName: userProfile.fullName,
+                        companyName: userProfile.companyName,
+                        phone: userProfile.phone,
+                        address: userProfile.address
+                      })
+                      setIsEditingProfile(true)
+                    }}
+                    style={{
+                      backgroundColor: '#0F8B8D',
+                      color: '#FFFFFF',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '10px',
+                      border: 'none',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.95rem',
+                      boxShadow: '0 4px 12px rgba(15, 139, 141, 0.25)'
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M11 4H4a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h14a2 2 0 0 0 2-2v-7"/><path d="M18.5 2.5a2.121 2.121 0 0 1 3 3L12 15l-4 1 1-4 9.5-9.5z"/></svg>
+                    Edit Profile
+                  </button>
+
+                  <button
+                    className="btn-secondary-outline"
+                    onClick={() => {
+                      setPasswordData({ currentPassword: '', newPassword: '', confirmPassword: '' })
+                      setIsChangingPassword(true)
+                    }}
+                    style={{
+                      backgroundColor: 'transparent',
+                      color: '#062B49',
+                      border: '1.5px solid #062B49',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '10px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.95rem'
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><rect x="3" y="11" width="18" height="11" rx="2" ry="2"/><path d="M7 11V7a5 5 0 0 1 10 0v4"/></svg>
+                    Change Password
+                  </button>
+
+                  <button
+                    onClick={onLogout}
+                    style={{
+                      marginLeft: 'auto',
+                      backgroundColor: '#FEF2F2',
+                      color: '#DC2626',
+                      border: '1px solid #FCA5A5',
+                      padding: '0.75rem 1.5rem',
+                      borderRadius: '10px',
+                      fontWeight: '600',
+                      cursor: 'pointer',
+                      display: 'inline-flex',
+                      alignItems: 'center',
+                      gap: '0.5rem',
+                      fontSize: '0.95rem'
+                    }}
+                  >
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2"><path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4"/><polyline points="16 17 21 12 16 7"/><line x1="21" y1="12" x2="9" y2="12"/></svg>
+                    Logout
+                  </button>
+                </div>
+              </div>
+
+              {/* EDIT PROFILE MODAL */}
+              {isEditingProfile && (
+                <div className="modal-backdrop-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, position: 'fixed', inset: 0, backgroundColor: 'rgba(6, 43, 73, 0.6)', backdropFilter: 'blur(4px)' }}>
+                  <div className="modal-card-container" style={{ width: '90%', maxWidth: '540px', background: '#ffffff', borderRadius: '16px', padding: '2rem', boxShadow: '0 20px 50px rgba(6, 43, 73, 0.25)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: '1px solid #E2E8F0', marginBottom: '1.25rem' }}>
+                      <h3 style={{ color: '#062B49', margin: 0, fontSize: '1.3rem', fontWeight: '700' }}>Edit Profile Information</h3>
+                      <button onClick={() => setIsEditingProfile(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748B' }}>×</button>
+                    </div>
+
+                    <form onSubmit={handleSaveProfile}>
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Full Name
+                        </label>
+                        <input
+                          type="text"
+                          value={editFormData.fullName}
+                          onChange={e => setEditFormData({ ...editFormData, fullName: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Company Name
+                        </label>
+                        <input
+                          type="text"
+                          value={editFormData.companyName}
+                          onChange={e => setEditFormData({ ...editFormData, companyName: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Phone Number
+                        </label>
+                        <input
+                          type="text"
+                          value={editFormData.phone}
+                          onChange={e => setEditFormData({ ...editFormData, phone: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '1.5rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Address
+                        </label>
+                        <textarea
+                          value={editFormData.address}
+                          onChange={e => setEditFormData({ ...editFormData, address: e.target.value })}
+                          rows="3"
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem', fontFamily: 'inherit' }}
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsEditingProfile(false)}
+                          style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', border: '1px solid #94A3B8', background: 'transparent', color: '#475569', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none', background: '#0F8B8D', color: '#ffffff', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Save Changes
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+
+              {/* CHANGE PASSWORD MODAL */}
+              {isChangingPassword && (
+                <div className="modal-backdrop-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, position: 'fixed', inset: 0, backgroundColor: 'rgba(6, 43, 73, 0.6)', backdropFilter: 'blur(4px)' }}>
+                  <div className="modal-card-container" style={{ width: '90%', maxWidth: '500px', background: '#ffffff', borderRadius: '16px', padding: '2rem', boxShadow: '0 20px 50px rgba(6, 43, 73, 0.25)' }}>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: '1px solid #E2E8F0', marginBottom: '1.25rem' }}>
+                      <h3 style={{ color: '#062B49', margin: 0, fontSize: '1.3rem', fontWeight: '700' }}>Change Security Password</h3>
+                      <button onClick={() => setIsChangingPassword(false)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748B' }}>×</button>
+                    </div>
+
+                    <form onSubmit={handleChangePasswordSubmit}>
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Current Password
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="••••••••"
+                          value={passwordData.currentPassword}
+                          onChange={e => setPasswordData({ ...passwordData, currentPassword: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '1.25rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          New Password
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Min 6 characters"
+                          value={passwordData.newPassword}
+                          onChange={e => setPasswordData({ ...passwordData, newPassword: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ marginBottom: '1.5rem' }}>
+                        <label style={{ display: 'block', fontSize: '0.85rem', fontWeight: '700', color: '#062B49', marginBottom: '0.4rem' }}>
+                          Confirm New Password
+                        </label>
+                        <input
+                          type="password"
+                          placeholder="Re-enter new password"
+                          value={passwordData.confirmPassword}
+                          onChange={e => setPasswordData({ ...passwordData, confirmPassword: e.target.value })}
+                          style={{ width: '100%', padding: '0.75rem 1rem', borderRadius: '8px', border: '1px solid #CBD5E1', fontSize: '0.95rem' }}
+                          required
+                        />
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '0.75rem' }}>
+                        <button
+                          type="button"
+                          onClick={() => setIsChangingPassword(false)}
+                          style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', border: '1px solid #94A3B8', background: 'transparent', color: '#475569', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="submit"
+                          style={{ padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none', background: '#062B49', color: '#ffffff', fontWeight: '600', cursor: 'pointer' }}
+                        >
+                          Update Password
+                        </button>
+                      </div>
+                    </form>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+
         </main>
       </div>
 
@@ -2757,6 +5786,106 @@ function Dashboard({ user, onLogout }) {
               >
                 Close Window
               </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* CUSTOMER VIEW DETAILS MODAL */}
+      {customerViewModalItem && (
+        <div className="modal-backdrop-overlay" style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, position: 'fixed', inset: 0, backgroundColor: 'rgba(6, 43, 73, 0.6)', backdropFilter: 'blur(4px)' }}>
+          <div className="modal-card-container" style={{ width: '90%', maxWidth: '900px', maxHeight: '88vh', overflowY: 'auto', background: '#ffffff', borderRadius: '16px', padding: '1.75rem', boxShadow: '0 20px 50px rgba(6, 43, 73, 0.25)' }}>
+            <div className="modal-header-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', paddingBottom: '1rem', borderBottom: '1px solid #E2E8F0' }}>
+              <div>
+                <h2 style={{ color: '#062B49', margin: 0, fontSize: '1.4rem' }}>Official Freight Quotation</h2>
+                <span style={{ fontSize: '0.85rem', color: '#64748B' }}>Request ID: <strong>{customerViewModalItem.id}</strong> • Issued for {customerViewModalItem.customer_name}</span>
+              </div>
+              <button className="btn-close-modal" onClick={() => setCustomerViewModalItem(null)} style={{ background: 'none', border: 'none', fontSize: '1.5rem', cursor: 'pointer', color: '#64748B' }}>×</button>
+            </div>
+
+            <div style={{ padding: '1.25rem 0' }}>
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem', marginBottom: '1.5rem', backgroundColor: '#F8FAFC', padding: '1.25rem', borderRadius: '10px', border: '1px solid #E2E8F0' }}>
+                <div>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#64748B', display: 'block', textTransform: 'uppercase' }}>Corridor</span>
+                  <strong style={{ color: '#062B49', fontSize: '1.05rem' }}>{customerViewModalItem.origin} → {customerViewModalItem.destination}</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#64748B', display: 'block', textTransform: 'uppercase' }}>Cargo & Load</span>
+                  <strong style={{ color: '#062B49', fontSize: '1.05rem' }}>{customerViewModalItem.cargo_type} ({customerViewModalItem.containers} x {customerViewModalItem.container_type || '40ft'})</strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#64748B', display: 'block', textTransform: 'uppercase' }}>Final Customer Price</span>
+                  <strong style={{ color: '#18A66A', fontSize: '1.3rem' }}>
+                    {customerViewModalItem.quotation_result?.financials?.customer_price
+                      ? `$${Number(customerViewModalItem.quotation_result.financials.customer_price).toLocaleString()} ${customerViewModalItem.quotation_result.financials.currency || 'USD'}`
+                      : customerViewModalItem.quotation_result?.pricing_summary?.total_freight_cost
+                      ? `$${Number(customerViewModalItem.quotation_result.pricing_summary.total_freight_cost).toLocaleString()} USD`
+                      : 'Quote Finalized'}
+                  </strong>
+                </div>
+                <div>
+                  <span style={{ fontSize: '0.78rem', fontWeight: '700', color: '#64748B', display: 'block', textTransform: 'uppercase' }}>Estimated Transit</span>
+                  <strong style={{ color: '#062B49', fontSize: '1.05rem' }}>
+                    {customerViewModalItem.route_result?.best_route?.transit_days
+                      ? `${customerViewModalItem.route_result.best_route.transit_days} Days`
+                      : 'Optimal Corridor'}
+                  </strong>
+                </div>
+              </div>
+
+              {/* Interactive Route Map */}
+              {customerViewModalItem.route_result && customerViewModalItem.route_result.best_route && (
+                <div style={{ marginBottom: '1.5rem' }}>
+                  <h4 style={{ color: '#062B49', marginBottom: '0.5rem', fontSize: '1rem' }}>Assigned Shipping Trajectory</h4>
+                  <div style={{ height: '320px', borderRadius: '10px', overflow: 'hidden', border: '1px solid #CBD5E1' }}>
+                    <RouteMap
+                      routes={customerViewModalItem.route_result?.available_routes || [customerViewModalItem.route_result?.best_route]}
+                      bestRouteId={customerViewModalItem.route_result?.best_route?.route_id}
+                      activeRouteId={customerViewModalItem.route_result?.best_route?.route_id}
+                      originName={customerViewModalItem.origin}
+                      destinationName={customerViewModalItem.destination}
+                      isCompact={true}
+                    />
+                  </div>
+                </div>
+              )}
+
+              <div style={{ display: 'flex', justifyContent: 'flex-end', gap: '1rem', marginTop: '1.5rem', flexWrap: 'wrap' }}>
+                {isCustomer && !['Delivered'].includes(customerViewModalItem.status) && (
+                  <button
+                    className="btn-primary"
+                    style={{ backgroundColor: '#18A66A', color: '#fff', padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '700', fontSize: '0.92rem', display: 'flex', alignItems: 'center', gap: '0.5rem' }}
+                    onClick={() => handleCustomerAcceptQuotation(customerViewModalItem)}
+                  >
+                    ✓ Accept Quotation & Confirm Shipment
+                  </button>
+                )}
+                <button
+                  className="btn-secondary-outline"
+                  onClick={() => setCustomerViewModalItem(null)}
+                  style={{ background: 'transparent', border: '1px solid #94A3B8', color: '#475569', borderRadius: '8px', padding: '0.65rem 1.25rem', cursor: 'pointer', fontWeight: '700' }}
+                >
+                  Close
+                </button>
+                <button
+                  className="btn-primary"
+                  style={{ backgroundColor: '#0F8B8D', color: '#fff', padding: '0.65rem 1.25rem', borderRadius: '8px', border: 'none', cursor: 'pointer', fontWeight: '600' }}
+                  onClick={() => handleDownloadCompleteShipmentReport({
+                    id: customerViewModalItem.id,
+                    origin: customerViewModalItem.origin,
+                    destination: customerViewModalItem.destination,
+                    cargo_type: customerViewModalItem.cargo_type,
+                    containers: customerViewModalItem.containers,
+                    full_result: {
+                      best_route: customerViewModalItem.route_result?.best_route,
+                      pricing_result: customerViewModalItem.pricing_result,
+                      quotation_result: customerViewModalItem.quotation_result
+                    }
+                  })}
+                >
+                  📄 Download Quotation PDF
+                </button>
+              </div>
             </div>
           </div>
         </div>

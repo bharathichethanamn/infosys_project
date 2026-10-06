@@ -31,27 +31,42 @@ function Login({ onLogin, onNavigateRegister, initialMessage, registeredUser }) 
       } catch (err) {}
     }
 
-    // Default admin demo account
+    // Default admin demo broker and demo customer accounts
     const isAdmin = cleanEmail === 'admin@maritime.com' && password === 'admin123'
+    const isCustomerDemo = cleanEmail === 'customer@maritime.com' && password === 'customer123'
+
     const foundUser = demoAccounts.find(
       (acc) => acc.email.toLowerCase() === cleanEmail && acc.password === password
     )
 
     if (isAdmin) {
-      onLogin({ email: 'admin@maritime.com', fullName: 'Maritime Admin', role: 'Maritime Broker Admin' }, rememberMe)
+      onLogin({
+        id: 'BRK-1002',
+        email: 'admin@maritime.com',
+        fullName: 'Maritime Freight Broker Admin',
+        companyName: 'Maritime Freight Brokerage LLC',
+        phone: '+1 (555) 019-2831',
+        address: 'Suite 800, Harbor Tower, Rotterdam, Netherlands',
+        role: 'Broker'
+      }, rememberMe)
+    } else if (isCustomerDemo) {
+      onLogin({
+        id: 'CUST-88321',
+        email: 'customer@maritime.com',
+        fullName: 'Global Logistics Corp',
+        companyName: 'Global Logistics Corp',
+        phone: '+1 (555) 847-2930',
+        address: '100 Maritime Plaza, Suite 400, Rotterdam, Netherlands',
+        role: 'Customer'
+      }, rememberMe)
     } else if (foundUser) {
-      onLogin({ email: foundUser.email, fullName: foundUser.fullName, role: 'Registered Broker' }, rememberMe)
+      onLogin(foundUser, rememberMe)
     } else {
       setError('Invalid email or password. Please check your credentials.')
     }
   }
 
-  const fillDemoCredentials = () => {
-    setEmail('admin@maritime.com')
-    setPassword('admin123')
-    setError('')
-    setInfoMessage('Demo credentials autofilled!')
-  }
+
 
   const handleForgotPassword = (e) => {
     e.preventDefault()
@@ -75,16 +90,7 @@ function Login({ onLogin, onNavigateRegister, initialMessage, registeredUser }) 
           <p className="brand-subtitle">AI-Powered Maritime Freight Brokerage Platform</p>
         </div>
 
-        {/* Demo Helper Banner */}
-        <div className="demo-credentials-box">
-          <div className="demo-info-text">
-            <span>Demo Email: <strong>admin@maritime.com</strong></span>
-            <span>Password: <strong>admin123</strong></span>
-          </div>
-          <button type="button" className="btn-auto-fill" onClick={fillDemoCredentials}>
-            Auto-fill Credentials
-          </button>
-        </div>
+        {/* Demo credentials box removed */}
 
         {/* Alert Banners */}
         {error && <div className="alert-banner alert-error">{error}</div>}

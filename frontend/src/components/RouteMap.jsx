@@ -129,6 +129,7 @@ function RouteMap({
   selectedRouteObj = null,
   originName = '',
   destinationName = '',
+  weatherData = null,
   isCompact = false,
   onSelectRoute = null,
   onResetViewAll = null
@@ -404,6 +405,116 @@ function RouteMap({
           }
         })
       })
+
+      // 3. Render Weather Checkpoints & Risk Zone Halos if weatherData is provided
+      if (weatherData && Array.isArray(weatherData.checkpoints)) {
+        weatherData.checkpoints.forEach((cp) => {
+          const cpLat = cp.lat
+          const cpLng = cp.lon || cp.lng
+          if (cpLat && cpLng) {
+            allWaypoints.push([cpLat, cpLng])
+
+            const riskScore = cp.risk_score || 0
+            let riskBg = '#10B981' // Very Low / Low Green
+            let riskEmoji = '🟢'
+            if (riskScore > 80) {
+              riskBg = '#991B1B' // Severe Red
+              riskEmoji = '🔴'
+            } else if (riskScore > 60) {
+              riskBg = '#EF4444' // High Orange
+              riskEmoji = '🟠'
+            } else if (riskScore > 40) {
+              riskBg = '#F59E0B' // Moderate Yellow
+              riskEmoji = '🟡'
+            }
+
+            // Render Weather Risk Zone Halo Circle for Moderate/High/Severe risks
+            if (riskScore > 40) {
+              try {
+                L.circle([cpLat, cpLng], {
+                  radius: riskScore > 75 ? 160000 : 100000,
+                  color: riskBg,
+                  fillColor: riskBg,
+                  fillOpacity: 0.22,
+                  weight: 2,
+                  dashArray: '4,4'
+                }).addTo(map)
+              } catch (e) {}
+            }
+
+            // Custom Weather Pin Marker Icon
+            const weatherPinHtml = `
+              <div style="
+                position: relative;
+                display: flex;
+                flex-direction: column;
+                align-items: center;
+                transform: translate(-50%, -100%);
+                pointer-events: auto;
+                cursor: pointer;
+              ">
+                <div style="
+                  background: #062B49;
+                  color: #FFFFFF;
+                  font-weight: 800;
+                  font-size: 10px;
+                  padding: 2px 7px;
+                  border-radius: 6px;
+                  border: 1px solid ${riskBg};
+                  box-shadow: 0 3px 8px rgba(0,0,0,0.3);
+                  white-space: nowrap;
+                  margin-bottom: 2px;
+                ">
+                  ${riskEmoji} ${cp.short_name || cp.name}: ${cp.risk_score}/100
+                </div>
+                <div style="
+                  width: 22px;
+                  height: 22px;
+                  background-color: ${riskBg};
+                  border: 2px solid white;
+                  border-radius: 50%;
+                  display: flex;
+                  align-items: center;
+                  justify-content: center;
+                  color: white;
+                  font-size: 11px;
+                  box-shadow: 0 0 10px ${riskBg};
+                ">
+                  🌊
+                </div>
+              </div>
+            `
+
+            const wIcon = L.divIcon({
+              html: weatherPinHtml,
+              className: 'custom-weather-pin-marker',
+              iconSize: [0, 0]
+            })
+
+            const wMarker = L.marker([cpLat, cpLng], { icon: wIcon }).addTo(map)
+
+            const m = cp.metrics || {}
+            wMarker.bindPopup(`
+              <div style="font-family: system-ui, sans-serif; min-width: 210px; padding: 4px;">
+                <div style="display: flex; justify-content: space-between; align-items: center; border-bottom: 1px solid #E2E8F0; padding-bottom: 4px; margin-bottom: 6px;">
+                  <strong style="color: #062B49; font-size: 12px;">${cp.name}</strong>
+                  <span style="background: ${riskBg}; color: white; padding: 2px 6px; border-radius: 10px; font-weight: bold; font-size: 10px;">${cp.risk_level}</span>
+                </div>
+                <div style="font-size: 11px; color: #334155; line-height: 1.5;">
+                  <div>🌡️ <strong>Temp:</strong> ${m.temperature_c ?? '--'}°C (Feels ${m.feels_like_c ?? '--'}°C)</div>
+                  <div>💨 <strong>Wind:</strong> ${m.wind_speed_knots ?? '--'} kts (Gusts ${m.wind_gusts_knots ?? '--'} kts)</div>
+                  <div>🌊 <strong>Wave Height:</strong> ${m.wave_height_m ?? '--'} m (${m.sea_state || 'Moderate'})</div>
+                  <div>👁️ <strong>Visibility:</strong> ${m.visibility_km ?? '--'} km</div>
+                  <div>🌧️ <strong>Precipitation:</strong> ${m.precipitation_mm ?? 0} mm/hr</div>
+                  <div style="margin-top: 4px; padding-top: 4px; border-top: 1px dashed #CBD5E1; color: #0F8B8D; font-weight: bold;">
+                    Weather Risk Score: ${cp.risk_score}/100
+                  </div>
+                </div>
+              </div>
+            `)
+          }
+        })
+      }
 
       // Fit map bounds to encompass all waypoints & markers
       const bounds = L.latLngBounds(allWaypoints)

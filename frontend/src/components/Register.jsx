@@ -2,20 +2,32 @@ import React, { useState } from 'react'
 
 function Register({ onRegisterSuccess, onBackToLogin }) {
   const [fullName, setFullName] = useState('')
+  const [companyName, setCompanyName] = useState('')
   const [email, setEmail] = useState('')
+  const [phone, setPhone] = useState('')
+  const [address, setAddress] = useState('')
   const [password, setPassword] = useState('')
   const [confirmPassword, setConfirmPassword] = useState('')
   const [showPassword, setShowPassword] = useState(false)
   const [showConfirmPassword, setShowConfirmPassword] = useState(false)
+  const [role, setRole] = useState('Customer')
   const [error, setError] = useState('')
 
   const handleRegister = (e) => {
     e.preventDefault()
     setError('')
 
-    // Basic Validation
-    if (!fullName.trim() || !email.trim() || !password || !confirmPassword) {
-      setError('All fields are required.')
+    // Profile validation: all fields required
+    if (
+      !fullName.trim() ||
+      !companyName.trim() ||
+      !email.trim() ||
+      !phone.trim() ||
+      !address.trim() ||
+      !password ||
+      !confirmPassword
+    ) {
+      setError('All profile fields are required.')
       return
     }
 
@@ -35,18 +47,46 @@ function Register({ onRegisterSuccess, onBackToLogin }) {
       return
     }
 
-    // Call registration success callback
-    onRegisterSuccess({
-      email: email.trim().toLowerCase(),
-      password: password,
+    // Check duplicate account
+    const cleanEmail = email.trim().toLowerCase()
+    const demoAccountsRaw = localStorage.getItem('maritime_demo_accounts')
+    let accounts = []
+    if (demoAccountsRaw) {
+      try {
+        accounts = JSON.parse(demoAccountsRaw)
+      } catch (err) {}
+    }
+    const isDuplicate = accounts.some(acc => acc.email.toLowerCase() === cleanEmail) ||
+      cleanEmail === 'admin@maritime.com' || cleanEmail === 'customer@maritime.com'
+
+    if (isDuplicate) {
+      setError('An account with this email address already exists. Please log in.')
+      return
+    }
+
+    // Call registration success callback with complete user profile record
+    const cleanRole = role === 'Broker' || role === 'Registered Broker' ? 'Broker' : 'Customer'
+    const newUserId = cleanRole === 'Customer'
+      ? `CUST-${Math.floor(10000 + Math.random() * 90000)}`
+      : `BRK-${Math.floor(1000 + Math.random() * 9000)}`
+
+    const newUser = {
+      id: newUserId,
       fullName: fullName.trim(),
-      role: 'Registered Broker'
-    })
+      companyName: companyName.trim(),
+      email: cleanEmail,
+      phone: phone.trim(),
+      address: address.trim(),
+      password: password,
+      role: cleanRole
+    }
+
+    onRegisterSuccess(newUser)
   }
 
   return (
-    <div className="login-wrapper">
-      <div className="login-card">
+    <div className="login-wrapper" style={{ padding: '1.5rem 0' }}>
+      <div className="login-card" style={{ maxWidth: '520px', width: '95%' }}>
         {/* Maritime Logo & Branding */}
         <div className="brand-header">
           <div className="ship-icon-badge">
@@ -57,8 +97,8 @@ function Register({ onRegisterSuccess, onBackToLogin }) {
               <path d="M12 4.5 15.5 8" />
             </svg>
           </div>
-          <h1 className="brand-title">Create Broker Account</h1>
-          <p className="brand-subtitle">Join the Agentic Maritime Brokerage Ecosystem</p>
+          <h1 className="brand-title">Create Account</h1>
+          <p className="brand-subtitle">Join the Agentic Maritime Freight SaaS Platform</p>
         </div>
 
         {/* Error Alert Banner */}
@@ -67,16 +107,45 @@ function Register({ onRegisterSuccess, onBackToLogin }) {
         {/* Registration Form */}
         <form onSubmit={handleRegister} className="login-form">
           <div className="form-group">
-            <label htmlFor="fullName">Full Name</label>
-            <input
-              id="fullName"
-              type="text"
+            <label htmlFor="role">Account Type (Role)</label>
+            <select
+              id="role"
               className="form-control"
-              placeholder="Enter your full name"
-              value={fullName}
-              onChange={(e) => setFullName(e.target.value)}
+              value={role}
+              onChange={(e) => setRole(e.target.value)}
               required
-            />
+            >
+              <option value="Customer">Customer (Importer / Exporter)</option>
+              <option value="Broker">Broker (Freight Broker / Agent)</option>
+            </select>
+          </div>
+
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+            <div className="form-group">
+              <label htmlFor="fullName">Full Name</label>
+              <input
+                id="fullName"
+                type="text"
+                className="form-control"
+                placeholder="John Doe"
+                value={fullName}
+                onChange={(e) => setFullName(e.target.value)}
+                required
+              />
+            </div>
+
+            <div className="form-group">
+              <label htmlFor="companyName">Company Name</label>
+              <input
+                id="companyName"
+                type="text"
+                className="form-control"
+                placeholder="Global Freight Inc"
+                value={companyName}
+                onChange={(e) => setCompanyName(e.target.value)}
+                required
+              />
+            </div>
           </div>
 
           <div className="form-group">
@@ -88,6 +157,32 @@ function Register({ onRegisterSuccess, onBackToLogin }) {
               placeholder="name@company.com"
               value={email}
               onChange={(e) => setEmail(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="phone">Phone Number</label>
+            <input
+              id="phone"
+              type="text"
+              className="form-control"
+              placeholder="+1 (555) 019-2831"
+              value={phone}
+              onChange={(e) => setPhone(e.target.value)}
+              required
+            />
+          </div>
+
+          <div className="form-group">
+            <label htmlFor="address">Address</label>
+            <input
+              id="address"
+              type="text"
+              className="form-control"
+              placeholder="100 Harbor Blvd, Suite 200"
+              value={address}
+              onChange={(e) => setAddress(e.target.value)}
               required
             />
           </div>
@@ -139,7 +234,7 @@ function Register({ onRegisterSuccess, onBackToLogin }) {
           </div>
 
           <button type="submit" className="btn-login" style={{ marginTop: '0.5rem' }}>
-            Create Account
+            Register Account
           </button>
         </form>
 

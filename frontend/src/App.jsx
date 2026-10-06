@@ -11,14 +11,28 @@ function App() {
   const [infoMessage, setInfoMessage] = useState('')
   const [registeredUser, setRegisteredUser] = useState(null)
 
-  // Ensure app link opened directly ALWAYS requires explicit login or registration first
+  // Restore active login session on app load if saved in localStorage
   useEffect(() => {
-    localStorage.removeItem('maritime_user')
+    const savedUserRaw = localStorage.getItem('maritime_user')
+    if (savedUserRaw) {
+      try {
+        const savedUser = JSON.parse(savedUserRaw)
+        if (savedUser && savedUser.email) {
+          setCurrentUser(savedUser)
+          setIsAuthenticated(true)
+        }
+      } catch (e) {
+        console.error('Error parsing stored user session:', e)
+      }
+    }
   }, [])
 
-  const handleLogin = (user) => {
+  const handleLogin = (user, remember = true) => {
     setCurrentUser(user)
     setIsAuthenticated(true)
+    if (remember) {
+      localStorage.setItem('maritime_user', JSON.stringify(user))
+    }
   }
 
   const handleLogout = () => {
@@ -39,12 +53,15 @@ function App() {
         accounts = JSON.parse(existingRaw)
       } catch (e) {}
     }
-    accounts.push(newUser)
-    localStorage.setItem('maritime_demo_accounts', JSON.stringify(accounts))
+    // Prevent duplicates
+    const filtered = accounts.filter(acc => acc.email.toLowerCase() !== newUser.email.toLowerCase())
+    filtered.push(newUser)
+    localStorage.setItem('maritime_demo_accounts', JSON.stringify(filtered))
 
     // Direct transition: New user -> Register -> Dashboard
     setCurrentUser(newUser)
     setIsAuthenticated(true)
+    localStorage.setItem('maritime_user', JSON.stringify(newUser))
   }
 
   return (

@@ -1,0 +1,21 @@
+weather_id,route_id,checkpoint_name,lat,lon,temperature_c,feels_like_c,humidity_pct,pressure_hpa,visibility_km,precipitation_mm,cloud_cover_pct,wind_speed_knots,wind_gusts_knots,wind_direction_deg,wave_height_m,wave_direction_deg,wave_period_s,sea_state,risk_score,risk_level,alert_warning,transit_impact
+W-001,R-CHE-ROT-01,Chennai Port (Origin),13.0827,80.2707,29.5,32.1,72,1011.2,10.0,0.0,30,12.4,15.8,120,0.9,135,6.5,Smooth / Slight,18,VERY LOW,None,Low Impact
+W-002,R-CHE-ROT-01,Indian Ocean Waypoint,6.0000,80.0000,28.2,30.5,78,1010.5,9.5,1.2,45,18.5,23.2,145,1.8,150,7.2,Moderate Sea,32,LOW,None,Low Impact
+W-003,R-CHE-ROT-01,Arabian Sea Checkpoint,14.0000,65.0000,27.8,29.8,75,1012.0,8.0,2.5,50,22.0,28.5,190,2.4,200,7.8,Moderate Sea,44,MODERATE,Moderate Marine Advisory,Moderate Impact
+W-004,R-CHE-ROT-01,Bab-el-Mandeb Strait,12.5833,43.3333,31.2,35.0,65,1009.8,7.5,0.0,20,26.5,34.0,330,3.2,320,5.8,Rough Sea,64,HIGH,Heavy Gale Warning,High Impact
+W-005,R-CHE-ROT-01,Red Sea Transit Zone,20.0000,38.5000,32.5,36.2,58,1008.5,10.0,0.0,15,19.2,24.0,340,1.9,345,6.8,Moderate Sea,38,LOW,None,Low Impact
+W-006,R-CHE-ROT-01,Mediterranean Sea Checkpoint,34.0000,20.0000,22.4,22.0,68,1015.2,10.0,0.0,25,14.8,19.2,280,1.4,285,7.0,Smooth / Slight,24,LOW,None,Low Impact
+W-007,R-CHE-ROT-01,Rotterdam Port (Destination),51.9244,4.4777,16.5,15.2,82,1018.4,9.0,0.5,70,13.2,17.5,240,1.1,250,6.2,Smooth / Slight,20,VERY LOW,None,Low Impact
+W-008,R-CHE-ROT-02,Bay of Bengal Waypoint,12.0000,83.0000,28.8,31.2,76,1011.0,9.0,1.8,55,20.4,26.0,140,2.1,145,7.0,Moderate Sea,38,LOW,None,Low Impact
+W-009,R-CHE-ROT-02,Colombo Transshipment Hub,6.9271,79.8612,28.0,31.0,80,1010.8,9.5,2.0,60,16.2,21.0,220,1.6,225,6.8,Moderate Sea,28,LOW,None,Low Impact
+W-010,R-CHE-ROT-03,Cape of Good Hope Checkpoint,-34.3568,18.4740,15.2,13.8,85,1014.0,6.0,4.8,80,31.5,42.0,230,4.8,240,9.5,High Sea (Heavy Swell),78,HIGH,High Wave Swell Warning,High Impact
+W-011,R-CHE-ROT-03,South Atlantic Ocean,-25.0000,0.0000,18.5,17.8,78,1016.2,8.5,1.0,50,24.8,32.0,180,3.1,190,8.2,Rough Sea,56,MODERATE,Moderate Sea Advisory,Moderate Impact
+W-012,R-SHA-LAX-01,Shanghai Port (Origin),31.2304,121.4737,21.5,21.5,70,1016.0,10.0,0.0,30,11.2,14.5,90,1.0,95,6.0,Smooth / Slight,16,VERY LOW,None,Low Impact
+W-013,R-SHA-LAX-01,East China Sea Waypoint,28.0000,125.0000,23.2,23.8,74,1015.5,9.2,0.8,40,16.5,21.2,110,1.5,115,6.8,Moderate Sea,26,LOW,None,Low Impact
+W-014,R-SHA-LAX-01,Trans-Pacific Ocean Checkpoint,25.0000,170.0000,24.0,24.5,75,1014.8,10.0,0.0,35,18.2,23.5,80,2.0,85,7.5,Moderate Sea,30,LOW,None,Low Impact
+W-015,R-SHA-LAX-01,Los Angeles Port (Destination),33.7405,-118.2736,22.0,22.0,62,1016.8,10.0,0.0,20,9.5,12.0,260,0.8,270,5.8,Calm (Glassy to Rippled),14,VERY LOW,None,Low Impact
+W-016,R-SIN-HAM-01,Singapore Port (Origin),1.3521,103.8198,30.5,34.2,82,1009.5,9.0,3.2,65,11.8,15.2,180,0.9,185,5.5,Smooth / Slight,22,LOW,None,Low Impact
+W-017,R-SIN-HAM-01,Strait of Malacca,2.5000,101.5000,29.8,33.0,80,1010.0,8.5,2.0,60,13.5,17.0,160,1.2,165,6.0,Smooth / Slight,25,LOW,None,Low Impact
+W-018,R-BOM-FEL-01,Mumbai Port (Origin),18.9482,72.8427,30.0,33.5,75,1011.5,9.5,0.0,25,12.0,15.0,290,1.0,295,6.2,Smooth / Slight,18,VERY LOW,None,Low Impact
+W-019,R-NGB-NYC-01,Ningbo Port (Origin),29.8683,121.5440,22.0,22.0,71,1016.5,10.0,0.0,35,12.8,16.2,100,1.1,105,6.1,Smooth / Slight,18,VERY LOW,None,Low Impact
+W-020,R-TYO-LAX-01,Tokyo Port (Origin),35.6762,139.6503,19.5,19.5,65,1018.0,10.0,0.0,20,10.5,13.8,80,0.9,85,5.9,Smooth / Slight,15,VERY LOW,None,Low Impact

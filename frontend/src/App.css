@@ -2013,5 +2013,91 @@ body {
   font-weight: 700;
 }
 
+/* ==========================================================================
+   OCEAN HISTORY TABLE - HIGH CONTRAST & CLEAR TEXT VISIBILITY
+   ========================================================================== */
 
+.history-table-wrapper {
+  width: 100%;
+  overflow-x: auto;
+  border-radius: 12px;
+  background: #FFFFFF !important;
+}
 
+.ocean-history-table {
+  width: 100%;
+  border-collapse: collapse;
+  text-align: left;
+  background: #FFFFFF !important;
+  color: #1E293B !important;
+}
+
+.ocean-history-table th {
+  background: #F8FAFC !important;
+  color: #062B49 !important;
+  font-size: 0.85rem !important;
+  font-weight: 800 !important;
+  padding: 0.85rem 1rem !important;
+  border-bottom: 2px solid #E2E8F0 !important;
+  text-transform: none;
+  letter-spacing: normal;
+}
+
+.ocean-history-table td {
+  padding: 0.95rem 1rem !important;
+  font-size: 0.88rem !important;
+  color: #1E293B !important;
+  font-weight: 600 !important;
+  border-bottom: 1px solid #E2E8F0 !important;
+  vertical-align: middle;
+}
+
+.ocean-history-table tr:hover td {
+  background-color: #F8FAFC !important;
+}
+
+.ocean-history-table td strong,
+.ocean-history-table td.td-bold,
+.ocean-history-table td .req-id {
+  color: #062B49 !important;
+  font-weight: 800 !important;
+}
+
+.ocean-history-table td span.sub-text {
+  color: #475569 !important;
+  font-size: 0.8rem !important;
+}
+
+/* GLOBAL HIGH CONTRAST & VISIBILITY OVERRIDES */
+input, select, textarea, .form-control {
+  color: #062B49 !important;
+  background-color: #FFFFFF !important;
+  border-color: #CBD5E1 !important;
+}
+
+input::placeholder, textarea::placeholder, .form-control::placeholder {
+  color: #64748B !important;
+  opacity: 1 !important;
+}
+
+select option {
+  color: #062B49 !important;
+  background-color: #FFFFFF !important;
+}
+
+.login-card, .modal-card-container, .modal-content-panel, .ocean-card {
+  color: #1E293B !important;
+}
+
+.brand-title, .brand-header h1, .brand-header p, .card-title, .modal-heading-title, .page-title {
+  color: #062B49 !important;
+}
+
+.brand-subtitle, .page-subtitle, .modal-date-subtitle {
+  color: #475569 !important;
+}
+
+.form-group label, .login-form label {
+  color: #062B49 !important;
+  font-weight: 700 !important;
+}
